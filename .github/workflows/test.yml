@@ -17,6 +17,6 @@ jobs:
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install triton pytest
-          pip install -e . --no-deps
+          pip install -e .
       - name: Unit tests (GPU + integration tests auto-skip)
         run: pytest -q
