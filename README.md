@@ -81,6 +81,22 @@ Unsteered requests — including batchmates of steered ones — are untouched.
 Malformed specs and unknown vector ids degrade to "unsteered", never to a
 failed request.
 
+## Verify on your hardware
+
+Two commands, ~3 minutes on any CUDA box with vLLM installed:
+
+```bash
+pip install git+https://github.com/moudrkat/hotwire-vllm
+python -m hotwire.verify --model Qwen/Qwen3-0.6B   # any HF model id works
+```
+
+It generates a throwaway steering vector for the model, checks that steering
+fires, that unsteered requests (including batchmates) are untouched, and
+compares decode cost idle vs all-steered — then prints a report block.
+**Please paste the report into an issue**, especially from hardware, model
+families, or configs (TP > 1, 7B+, H100s) the tables below don't cover yet —
+that's currently the most useful contribution this project can receive.
+
 ## Status
 
 Working end-to-end on vLLM 0.25.1, **both model runners** (the classic
