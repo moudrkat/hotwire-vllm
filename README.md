@@ -96,6 +96,20 @@ steering op in it.
 
 Tests: `pytest` (unit, CPU-safe), `pytest -m integration` (real engine, GPU).
 
+Verified architectures (chaos-vector A/B + batchmate-isolation check, both
+model runners exercised):
+
+| model | steering works | unsteered requests untouched |
+|---|---|---|
+| Qwen3-0.6B / Qwen3-4B-Instruct-2507 | ✓ | ✓ |
+| Qwen2.5-1.5B-Instruct | ✓ | ✓ |
+| Phi-3.5-mini-instruct | ✓ | ✓ |
+
+7B+ models (OLMo-2-7B, command-r7b, gpt-oss-20b) OOM'd on the 16 GB test GPU
+before the plugin engaged — no architecture failure observed yet; reports from
+bigger cards welcome. The layer patch targets any `*DecoderLayer` module with
+the standard `(positions, hidden_states, residual)` signature.
+
 ## Numbers
 
 Qwen3-4B-Instruct-2507, bf16, RTX 4070 Ti SUPER 16 GB, 8 concurrent requests,
