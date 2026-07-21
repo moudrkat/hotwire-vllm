@@ -59,7 +59,15 @@ hidden[tok] += scales[slot] * bank[slot]   where slot = slot_map[layer, tok] >= 
 
 ## Status
 
-Early. Kernel and bank are real and unit-tested; the vLLM runner integration
-is the active construction site. First target: Qwen3-4B on a single 16 GB GPU,
-serving steered and unsteered requests in the same batch at full CUDA-graph
-speed.
+Working end-to-end against vLLM 0.25.1's **V1 model runner** with CUDA graphs
+captured (PIECEWISE + FULL) and torch.compile on: per-request steering via
+`extra_args`/`vllm_xargs`, verified on Qwen3-0.6B and Qwen3-4B on a single
+16 GB GPU. Run with `VLLM_USE_V2_MODEL_RUNNER=0` for now.
+
+Known gaps:
+- vLLM 0.25.1 ships a second runner (`vllm/v1/worker/gpu/model_runner.py`,
+  `VLLM_USE_V2_MODEL_RUNNER`) that this setup selects by default; hotwire
+  detects only the V1 class so far. V2 support is next.
+- Vector registration is startup-time only (`$HOTWIRE_VECTORS` dir of .pt
+  files); the HTTP registration endpoint is not built yet.
+- No benchmark numbers yet (steered vs unsteered vs eager-mode vllm-lens).
