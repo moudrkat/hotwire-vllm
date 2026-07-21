@@ -57,17 +57,48 @@ hidden[tok] += scales[slot] * bank[slot]   where slot = slot_map[layer, tok] >= 
   integration points against vLLM 0.25.x)
 - `hotwire/wire.py` — JSON/safetensors vector wire format, no pickle (working)
 
+## Quickstart
+
+```bash
+pip install -e .          # registers the vllm.general_plugins entry point
+export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files, (n_layers, hidden) each
+vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
+```
+
+Steer any request by id + layer + scale:
+
+```python
+# offline
+SamplingParams(extra_args={"hotwire": '{"id": "tesla_car", "layer": 20, "scale": 1.5}'})
+```
+```bash
+# OpenAI API
+curl .../v1/chat/completions -d '{..., "vllm_xargs":
+  {"hotwire": "{\"id\": \"tesla_car\", \"layer\": 20, \"scale\": 1.5}"}}'
+```
+
+Unsteered requests — including batchmates of steered ones — are untouched.
+Malformed specs and unknown vector ids degrade to "unsteered", never to a
+failed request.
+
 ## Status
 
-Working end-to-end against vLLM 0.25.1's **V1 model runner** with CUDA graphs
-captured (PIECEWISE + FULL) and torch.compile on: per-request steering via
-`extra_args`/`vllm_xargs`, verified on Qwen3-0.6B and Qwen3-4B on a single
-16 GB GPU. Run with `VLLM_USE_V2_MODEL_RUNNER=0` for now.
+Working end-to-end on vLLM 0.25.1, **both model runners** (the classic
+`GPUModelRunner` and the new V2 runner that 0.25.1 selects by default for
+dense generate models), with CUDA graphs captured (PIECEWISE + FULL) and
+torch.compile on. Verified on Qwen3-0.6B / Qwen3-4B on a single 16 GB GPU:
+solo steering, mixed batches, decode-phase graph replays.
 
-Known gaps:
-- vLLM 0.25.1 ships a second runner (`vllm/v1/worker/gpu/model_runner.py`,
-  `VLLM_USE_V2_MODEL_RUNNER`) that this setup selects by default; hotwire
-  detects only the V1 class so far. V2 support is next.
-- Vector registration is startup-time only (`$HOTWIRE_VECTORS` dir of .pt
-  files); the HTTP registration endpoint is not built yet.
-- No benchmark numbers yet (steered vs unsteered vs eager-mode vllm-lens).
+hotwire also salts vLLM's torch.compile/AOT cache key (`VllmConfig.compute_hash`)
+— the op is traced into the compiled model, and vLLM's cache doesn't know about
+plugins, so without the salt a stale cache silently serves a model with no
+steering op in it.
+
+Tests: `pytest` (unit, CPU-safe), `pytest -m integration` (real engine, GPU).
+Benchmarks: `benchmarks/bench_decode.py` (vanilla vs idle vs steered vs eager).
+
+Roadmap:
+- HTTP vector registration at runtime (via `vllm.endpoint_plugins`), replacing
+  startup-only `$HOTWIRE_VECTORS`.
+- Norm-matched and position-targeted steering modes.
+- Tracking the RFC vllm-project/vllm#36998 Phase 2 interface as it lands.

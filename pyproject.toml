@@ -19,3 +19,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hotwire"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: spins up a real vLLM engine (slow, needs GPU + vllm installed)",
+]
+addopts = "-m 'not integration'"
+

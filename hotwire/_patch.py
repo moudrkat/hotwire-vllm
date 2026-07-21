@@ -126,7 +126,12 @@ def _fill_slot_map(runner, scheduler_output) -> None:
             req = runner.requests.get(req_id)
             sp = req.sampling_params if req is not None else None
             raw = (sp.extra_args or {}).get("hotwire") if sp is not None else None
-            spec = _state.parse_spec(raw) or False  # False = definitively none
+            try:
+                spec = _state.parse_spec(raw) or False  # False = definitively none
+            except Exception:
+                logger.warning("hotwire: malformed spec for %s ignored: %r",
+                               req_id, raw)
+                spec = False
             specs[req_id] = spec
         if spec:
             for entry in spec:
@@ -144,16 +149,151 @@ def _fill_slot_map(runner, scheduler_output) -> None:
             del specs[rid]
 
 
+def _fill_slot_map_v2(runner, input_batch) -> None:
+    """V2 runner: spans come pre-computed on the InputBatch (which is sorted
+    decode-first — scheduler order does NOT apply here)."""
+    st = _state.get()
+    if st is None:
+        return
+    st.slot_map.fill_(-1)
+    specs = runner._hotwire_specs
+    if not specs:
+        return
+    qsl = input_batch.query_start_loc_np
+    for i, req_id in enumerate(input_batch.req_ids):
+        spec = specs.get(req_id)
+        if not spec:
+            continue
+        start, end = int(qsl[i]), int(qsl[i + 1])
+        for entry in spec:
+            slot = st.slot_for(entry["id"], int(entry["layer"]),
+                               float(entry.get("scale", 1.0)))
+            if slot is not None:
+                st.slot_map[int(entry["layer"]), start:end] = slot
+                _dbg(f"v2 steering req={req_id} tokens[{start}:{end}] "
+                     f"layer={entry['layer']} slot={slot}")
+
+
+def _install_v2(RunnerV2) -> None:
+    """V2 (vllm.v1.worker.gpu.model_runner): SamplingParams is decomposed and
+    discarded at add time, so extra_args must be captured in add_requests;
+    prepare_inputs hands us exact per-request spans."""
+    orig_load = RunnerV2.load_model
+    orig_add = RunnerV2.add_requests
+    orig_prep = RunnerV2.prepare_inputs
+    orig_exec = RunnerV2.execute_model
+
+    def load_model(self, *args, **kwargs):
+        _dbg("v2 load_model wrapper entered")
+        out = orig_load(self, *args, **kwargs)
+        try:
+            _install_into_model(self)
+        except Exception:
+            logger.exception("hotwire: v2 install failed; steering disabled")
+            import traceback
+
+            _dbg("v2 install failed:\n" + traceback.format_exc())
+        return out
+
+    def add_requests(self, scheduler_output, *args, **kwargs):
+        out = orig_add(self, scheduler_output, *args, **kwargs)
+        try:
+            specs = getattr(self, "_hotwire_specs", None)
+            if specs is not None:
+                for req_data in scheduler_output.scheduled_new_reqs:
+                    sp = req_data.sampling_params
+                    raw = (sp.extra_args or {}).get("hotwire") if sp else None
+                    if raw is None:
+                        specs.pop(req_data.req_id, None)  # re-add without spec
+                        continue
+                    try:
+                        parsed = _state.parse_spec(raw)
+                    except Exception:
+                        logger.warning("hotwire: malformed spec for %s ignored: %r",
+                                       req_data.req_id, raw)
+                        parsed = None
+                    if parsed:
+                        specs[req_data.req_id] = parsed
+                if len(specs) > 4 * len(self.req_states.req_id_to_index) + 64:
+                    live = set(self.req_states.req_id_to_index)
+                    for rid in [r for r in specs if r not in live]:
+                        del specs[rid]
+        except Exception:
+            logger.exception("hotwire: v2 spec capture failed")
+        return out
+
+    def prepare_inputs(self, *args, **kwargs):
+        input_batch = orig_prep(self, *args, **kwargs)
+        try:
+            _fill_slot_map_v2(self, input_batch)
+        except Exception:
+            logger.exception("hotwire: v2 slot fill failed; step runs unsteered")
+            st = _state.get()
+            if st is not None:
+                st.slot_map.fill_(-1)
+        return input_batch
+
+    def execute_model(self, scheduler_output, intermediate_tensors=None,
+                      dummy_run=False, *args, **kwargs):
+        if dummy_run or kwargs.get("is_profile"):
+            st = _state.get()
+            if st is not None:
+                st.slot_map.fill_(-1)  # dummy batches must never be steered
+        return orig_exec(self, scheduler_output, intermediate_tensors,
+                         dummy_run, *args, **kwargs)
+
+    RunnerV2.load_model = load_model
+    RunnerV2.add_requests = add_requests
+    RunnerV2.prepare_inputs = prepare_inputs
+    RunnerV2.execute_model = execute_model
+    logger.info("hotwire: installed on V2 model runner")
+    _dbg("installed on V2 model runner")
+
+
 def install() -> None:
     """Entry point hook — cheap, idempotent, safe on non-worker processes."""
     global _installed
     if _installed:
         return
     _dbg("install() called")
+
+    # Salt vLLM's compile-cache key: our op is traced into the compiled model,
+    # but vLLM's cache hash knows nothing about plugins. Without this, a cache
+    # from a hotwire-less run silently serves a model with no steering op in it
+    # (and vice versa after uninstall).
+    try:
+        import hashlib
+
+        from importlib.metadata import version
+
+        from vllm.config import VllmConfig
+
+        salt = "hotwire-" + version("hotwire-vllm")
+        orig_hash = VllmConfig.compute_hash
+
+        def compute_hash(self):
+            h = orig_hash(self)
+            return hashlib.sha256((h + salt).encode()).hexdigest()[: len(h)]
+
+        VllmConfig.compute_hash = compute_hash
+        _dbg(f"compile cache salted with {salt!r}")
+    except Exception as e:
+        logger.warning("hotwire: could not salt compile cache key (%r); "
+                       "clear ~/.cache/vllm/torch_compile_cache after "
+                       "installing or removing hotwire", e)
+
+    try:
+        from vllm.v1.worker.gpu.model_runner import GPUModelRunner as RunnerV2
+    except ImportError as e:
+        _dbg(f"v2 model_runner import failed (older vLLM?): {e!r}")
+        RunnerV2 = None
+    if RunnerV2 is not None:
+        _install_v2(RunnerV2)
     try:
         from vllm.v1.worker.gpu_model_runner import GPUModelRunner
     except ImportError as e:
         _dbg(f"gpu_model_runner import failed: {e!r}")
+        _installed = RunnerV2 is not None
         return  # not a vLLM process we can steer
 
     orig_load = GPUModelRunner.load_model
