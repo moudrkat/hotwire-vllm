@@ -133,6 +133,11 @@ Untested configurations (no known issues, but nobody has run them — treat as
 unsupported until someone does): tensor parallel > 1, pipeline parallel,
 speculative decoding, LoRA. Issues welcome.
 
+Known limitation: one vector per (layer, token) — multiple spec entries
+targeting the **same layer** don't stack; the last one wins. Different layers
+compose fine. Workaround: pre-combine same-layer vectors into one .pt
+(`a*v1 + b*v2`) and register the combo; native stacking is on the roadmap.
+
 Roadmap:
 - HTTP vector registration at runtime (via `vllm.endpoint_plugins`), replacing
   startup-only `$HOTWIRE_VECTORS`.
