@@ -95,7 +95,22 @@ plugins, so without the salt a stale cache silently serves a model with no
 steering op in it.
 
 Tests: `pytest` (unit, CPU-safe), `pytest -m integration` (real engine, GPU).
-Benchmarks: `benchmarks/bench_decode.py` (vanilla vs idle vs steered vs eager).
+
+## Numbers
+
+Qwen3-4B-Instruct-2507, bf16, RTX 4070 Ti SUPER 16 GB, 8 concurrent requests,
+256 decode tokens each, medians of 3 (`benchmarks/bench_decode.py`):
+
+| condition | TTFT | decode TPOT |
+|---|---|---|
+| vanilla vLLM (plugin not installed) | 4.9 ms | 1.78 ms/tok |
+| hotwire installed, no request steered | 4.9 ms | 1.78 ms/tok |
+| hotwire, **all 8 requests steered** | 4.6 ms | 1.78 ms/tok |
+| vLLM `enforce_eager` (no plugin) | 5.0 ms | 1.88 ms/tok |
+
+Idle and fully-steered are both within noise of vanilla. The eager row is what
+hook-based steering tools pay *before* their Python hooks even run (~6% TPOT
+here; the gap grows with model size and batch pressure).
 
 Roadmap:
 - HTTP vector registration at runtime (via `vllm.endpoint_plugins`), replacing
