@@ -48,7 +48,10 @@ def main():
                     help="steer with this vector id (needs HOTWIRE_VECTORS)")
     ap.add_argument("--layer", type=int, default=20)
     ap.add_argument("--scale", type=float, default=1.5)
-    ap.add_argument("--n-reqs", type=int, default=8)
+    ap.add_argument("--n-reqs", default="8",
+                    help="comma-separated batch sizes, e.g. 1,2,8 — the eager"
+                         " tax is host launch overhead, so the gap should be"
+                         " biggest at small batches (agent workloads)")
     ap.add_argument("--max-tokens", type=int, default=256)
     ap.add_argument("--eager", action="store_true",
                     help="run the eager-mode condition instead of graph mode")
@@ -58,14 +61,18 @@ def main():
               enable_prefix_caching=False, enforce_eager=args.eager)
 
     mode = "eager" if args.eager else "graphs"
-    ttft, tpot = run(llm, args.n_reqs, args.max_tokens)
-    print(f"[{mode}] idle/baseline: TTFT {ttft:8.1f} ms   TPOT {tpot:6.2f} ms/tok")
+    for n_reqs in [int(s) for s in str(args.n_reqs).split(",")]:
+        ttft, tpot = run(llm, n_reqs, args.max_tokens)
+        print(f"[{mode}] n={n_reqs:<3} idle/baseline: "
+              f"TTFT {ttft:8.1f} ms   TPOT {tpot:6.2f} ms/tok")
 
-    if args.vector_id:
-        xa = {"hotwire": json.dumps({"id": args.vector_id, "layer": args.layer,
-                                     "scale": args.scale})}
-        ttft, tpot = run(llm, args.n_reqs, args.max_tokens, xa)
-        print(f"[{mode}] all-steered:   TTFT {ttft:8.1f} ms   TPOT {tpot:6.2f} ms/tok")
+        if args.vector_id:
+            xa = {"hotwire": json.dumps({"id": args.vector_id,
+                                         "layer": args.layer,
+                                         "scale": args.scale})}
+            ttft, tpot = run(llm, n_reqs, args.max_tokens, xa)
+            print(f"[{mode}] n={n_reqs:<3} all-steered:   "
+                  f"TTFT {ttft:8.1f} ms   TPOT {tpot:6.2f} ms/tok")
 
 
 if __name__ == "__main__":
