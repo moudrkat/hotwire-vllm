@@ -19,6 +19,42 @@ in-flight steering is explicitly deferred to "Phase 2"). hotwire packages it as
 an out-of-tree plugin: `pip install`, no fork, registered via vLLM's official
 `general_plugins` entry point.
 
+## ⚡ Run in 30 s
+
+```bash
+pip install -e .          # registers the vllm.general_plugins entry point
+export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files, (n_layers, hidden) each
+vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
+```
+
+Steer any request by id + layer + scale:
+
+```python
+# offline
+SamplingParams(extra_args={"hotwire": '{"id": "tesla_car", "layer": 20, "scale": 1.5}'})
+```
+
+Optional per-entry flag `"decode_only": true` steers generated tokens only,
+never the prompt — use it for vectors calibrated on generation-only steering
+(research rigs typically don't steer the prefill; applying such a vector to a
+long prompt as well multiplies the effective dose and can wreck coherence).
+
+Lab twin: [brainscope](https://github.com/moudrkat/brainscope) accepts this
+exact spec and wire format — calibrate a vector under its lenses (its
+`export_hotwire` ships `.pt` files with a regime passport), deploy it here
+unchanged, and replay production conversations back under the lens when a
+vector misbehaves.
+
+```bash
+# OpenAI API
+curl .../v1/chat/completions -d '{..., "vllm_xargs":
+  {"hotwire": "{\"id\": \"tesla_car\", \"layer\": 20, \"scale\": 1.5}"}}'
+```
+
+Unsteered requests — including batchmates of steered ones — are untouched.
+Malformed specs and unknown vector ids degrade to "unsteered", never to a
+failed request.
+
 ## Design
 
 Three persistent GPU tensors, allocated at model-load time:
@@ -56,42 +92,6 @@ hidden[tok] += scales[slot] * bank[slot]   where slot = slot_map[layer, tok] >= 
 - `hotwire/_patch.py` — decoder-layer wrapping + pre-forward slot fill (WIP:
   integration points against vLLM 0.25.x)
 - `hotwire/wire.py` — JSON/safetensors vector wire format, no pickle (working)
-
-## Quickstart
-
-```bash
-pip install -e .          # registers the vllm.general_plugins entry point
-export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files, (n_layers, hidden) each
-vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
-```
-
-Steer any request by id + layer + scale:
-
-```python
-# offline
-SamplingParams(extra_args={"hotwire": '{"id": "tesla_car", "layer": 20, "scale": 1.5}'})
-```
-
-Optional per-entry flag `"decode_only": true` steers generated tokens only,
-never the prompt — use it for vectors calibrated on generation-only steering
-(research rigs typically don't steer the prefill; applying such a vector to a
-long prompt as well multiplies the effective dose and can wreck coherence).
-
-Lab twin: [brainscope](https://github.com/moudrkat/brainscope) accepts this
-exact spec and wire format — calibrate a vector under its lenses (its
-`export_hotwire` ships `.pt` files with a regime passport), deploy it here
-unchanged, and replay production conversations back under the lens when a
-vector misbehaves.
-
-```bash
-# OpenAI API
-curl .../v1/chat/completions -d '{..., "vllm_xargs":
-  {"hotwire": "{\"id\": \"tesla_car\", \"layer\": 20, \"scale\": 1.5}"}}'
-```
-
-Unsteered requests — including batchmates of steered ones — are untouched.
-Malformed specs and unknown vector ids degrade to "unsteered", never to a
-failed request.
 
 ## Verify on your hardware
 
@@ -211,3 +211,36 @@ Roadmap:
   per-token buffer — continuous intensities without minting new slots.
 - Norm-matched and position-targeted steering modes.
 - Tracking the RFC vllm-project/vllm#36998 Phase 2 interface as it lands.
+## Where this sits in the lab
+
+```mermaid
+flowchart LR
+    hd["🧭 hidden-directions<br/>behavior → vector"]
+    bs(["🧠 brainscope<br/>watch the model think"])
+    hw["🔥 hotwire-vllm<br/>steering in production"]
+    st["🕹️ steeropathy<br/>agents talk via activations"]
+    tm["⚖️ in-two-minds<br/>agent hesitating between tools"]
+    sm["🧪 steering-mechanics<br/>how steering actually works"]
+
+    hd -->|vectors| bs
+    hd -->|vector + passport| hw
+    bs --> st
+    bs --> tm
+    bs -->|causal replay| sm
+    hw -.->|vector under study| sm
+
+    click hd "https://github.com/moudrkat/hidden-directions"
+    click bs "https://github.com/moudrkat/brainscope"
+    click hw "https://github.com/moudrkat/hotwire-vllm"
+    click st "https://github.com/moudrkat/steeropathy"
+    click tm "https://github.com/moudrkat/in-two-minds"
+    click sm "https://github.com/moudrkat/steering-mechanics"
+
+    classDef dim fill:#f6f8fa,stroke:#d0d7de,color:#57606a;
+    classDef here fill:#8957e5,stroke:#6e40c9,color:#ffffff;
+    class hd,bs,hw,st,tm,sm dim;
+    class hw here;
+```
+
+*Highlighted = this repo. The full lab map (with the two other repos' stories) lives on [moudrkat](https://github.com/moudrkat).*
+
