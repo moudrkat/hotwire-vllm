@@ -162,8 +162,9 @@ nothing per token). Each distinct **(vector, layer, scale)** combo occupies
 one slot **permanently** — nothing frees slots when requests finish. A fixed
 catalog of vectors at fixed scales therefore runs forever, but continuously
 varying scales (0.80, 0.83, 0.87, …) mint a fresh slot each and exhaust the
-table; once full, any step containing a request with an unregistrable combo
-runs unsteered (logged). Workaround today: round scales to a small fixed
+table; once full, requests with an unregistrable combo run unsteered (logged)
+while already-registered combos keep working, batchmates included.
+Workaround today: round scales to a small fixed
 palette and set `HOTWIRE_SLOTS` generously at startup. The real fixes are on
 the roadmap below — slots *can* recycle (the scale isn't baked into the
 stored vector; the kernel reads it separately at replay), it's bookkeeping,

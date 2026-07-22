@@ -55,7 +55,12 @@ class SteerState:
             return None
         t = entry[0]
         row = t[layer] if t.dim() == 2 else t
-        return self.bank.register(key, row.to(torch.float32), scale)
+        try:
+            return self.bank.register(key, row.to(torch.float32), scale)
+        except RuntimeError as e:
+            # bank full: skip just this entry; batchmates keep their steering
+            logger.warning("hotwire: %s — %r not registered, entry ignored", e, key)
+            return None
 
 
 def get() -> "SteerState | None":

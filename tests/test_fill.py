@@ -74,14 +74,37 @@ def test_spec_cache_reused_and_pruned(state):
     assert state.slot_map.eq(-1).all()
 
 
-def test_bank_exhaustion_never_leaves_partial_fill(state):
-    # 4-slot bank: request "a" grabs slots, then "b" needs a 5th -> register
-    # raises mid-walk. The already-written spans for "a" must not survive.
+def test_bank_exhaustion_degrades_per_request(state):
+    # 4-slot bank: request "a" grabs all slots, then "b" needs a 5th. Only
+    # "b" runs unsteered; "a" keeps its vectors, nothing raises.
     a_spec = json.dumps([{"id": "vec", "layer": l, "scale": 1.0}
                          for l in range(4)])
     b_spec = json.dumps({"id": "vec", "layer": 2, "scale": 99.0})
     runner = make_runner({"a": a_spec, "b": b_spec})
-    with pytest.raises(RuntimeError):
+    _patch._fill_slot_map(runner, sched({"a": 3, "b": 2}))
+    sm = state.slot_map
+    for layer in range(4):
+        slot = state.bank.slot_of(f"vec@{layer}x1.0")
+        assert sm[layer, :3].eq(slot).all(), "batchmate keeps its steering"
+    assert sm[:, 3:].eq(-1).all(), "exhausted request's span stays unsteered"
+
+
+def test_unexpected_error_never_leaves_partial_fill(state, monkeypatch):
+    # If the walk dies mid-batch for any other reason, the already-written
+    # spans must not survive into the step.
+    a_spec = json.dumps({"id": "vec", "layer": 1, "scale": 1.0})
+    runner = make_runner({"a": a_spec, "b": a_spec})
+    calls = {"n": 0}
+    orig = state.slot_for
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise ValueError("boom")
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(state, "slot_for", flaky)
+    with pytest.raises(ValueError):
         _patch._fill_slot_map(runner, sched({"a": 3, "b": 2}))
     assert state.slot_map.eq(-1).all(), "partial fill must be wiped on error"
 
