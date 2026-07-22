@@ -142,8 +142,18 @@ Qwen3-4B-Instruct-2507, bf16, RTX 4070 Ti SUPER 16 GB, 8 concurrent requests,
 | vLLM `enforce_eager` (no plugin) | 5.0 ms | 1.88 ms/tok |
 
 Idle and fully-steered are both within noise of vanilla. The eager row is what
-hook-based steering tools pay *before* their Python hooks even run (~6% TPOT
-here; the gap grows with model size and batch pressure).
+hook-based steering tools pay *before* their Python hooks even run.
+
+Batch sweep (same model/GPU): the eager tax grows with batch pressure —
++2.3% at 1 request (batch-1 decode is weight-streaming-bound, which hides
+launch overhead), +4.7% at 2, +5.6% at 8. hotwire's idle == steered holds at
+every batch size, to the second decimal.
+
+| batch | graphs idle | graphs all-steered | eager |
+|---|---|---|---|
+| 1 | 13.69 ms/tok | 13.69 | 14.00 |
+| 2 | 6.97 ms/tok | 6.97 | 7.30 |
+| 8 | 1.78 ms/tok | 1.78 | 1.88 |
 
 Untested configurations (no known issues, but nobody has run them — treat as
 unsupported until someone does): tensor parallel > 1, pipeline parallel,
