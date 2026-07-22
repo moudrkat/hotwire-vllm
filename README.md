@@ -118,7 +118,9 @@ model runners exercised):
 | model | steering works | unsteered untouched | TPOT idle → all-steered |
 |---|---|---|---|
 | Qwen3-14B-AWQ (4-bit) | ✓ | ✓ | 1.91 → 1.91 ms/tok |
+| Llama-3.1-8B-Instruct-AWQ | ✓ | ✓ | 1.10 → 1.10 ms/tok |
 | Qwen3-8B-FP8 | ✓ | ✓ | 2.27 → 2.28 ms/tok |
+| Mistral-7B-Instruct-v0.2-AWQ | ✓ | ✓ | 0.94 → 0.94 ms/tok |
 | Qwen3-4B-Instruct-2507 | ✓ | ✓ | 1.78 → 1.78 ms/tok |
 | Qwen3-0.6B | ✓ | ✓ | — |
 | Qwen2.5-1.5B-Instruct | ✓ | ✓ | 0.77 → 0.77 ms/tok |
