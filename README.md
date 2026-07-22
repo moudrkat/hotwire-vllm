@@ -71,6 +71,14 @@ Steer any request by id + layer + scale:
 # offline
 SamplingParams(extra_args={"hotwire": '{"id": "tesla_car", "layer": 20, "scale": 1.5}'})
 ```
+
+Optional per-entry flag `"decode_only": true` steers generated tokens only,
+never the prompt — use it for vectors calibrated on generation-only steering
+(research rigs typically don't steer the prefill; applying such a vector to a
+long prompt as well multiplies the effective dose and can wreck coherence).
+
+```python
+```
 ```bash
 # OpenAI API
 curl .../v1/chat/completions -d '{..., "vllm_xargs":

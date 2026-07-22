@@ -143,6 +143,12 @@ def _walk_batch(runner, st, num_scheduled, specs) -> None:
             specs[req_id] = spec
         if spec:
             for entry in spec:
+                # decode_only: steer generated tokens, never the prompt.
+                # Vectors calibrated on generation-only steering (brainscope
+                # mutes prefill) are far too hot when applied to a long
+                # prefill as well — skip multi-token (prefill) spans.
+                if entry.get("decode_only") and n > 1:
+                    continue
                 slot = st.slot_for(entry["id"], int(entry["layer"]),
                                    float(entry.get("scale", 1.0)))
                 if slot is not None:
@@ -174,6 +180,8 @@ def _fill_slot_map_v2(runner, input_batch) -> None:
             continue
         start, end = int(qsl[i]), int(qsl[i + 1])
         for entry in spec:
+            if entry.get("decode_only") and end - start > 1:
+                continue  # prefill span; see _walk_batch
             slot = st.slot_for(entry["id"], int(entry["layer"]),
                                float(entry.get("scale", 1.0)))
             if slot is not None:

@@ -109,6 +109,17 @@ def test_unexpected_error_never_leaves_partial_fill(state, monkeypatch):
     assert state.slot_map.eq(-1).all(), "partial fill must be wiped on error"
 
 
+def test_decode_only_skips_prefill_spans(state):
+    spec = json.dumps({"id": "vec", "layer": 2, "scale": 1.5,
+                       "decode_only": True})
+    runner = make_runner({"a": spec})
+    _patch._fill_slot_map(runner, sched({"a": 5}))  # prefill-like span
+    assert state.slot_map.eq(-1).all(), "prefill span must stay unsteered"
+    runner2 = make_runner({"a": spec})
+    _patch._fill_slot_map(runner2, sched({"a": 1}))  # decode step
+    assert not state.slot_map.eq(-1).all(), "decode token gets the vector"
+
+
 def test_stale_slots_cleared_between_steps(state):
     runner = make_runner({"a": SPEC})
     _patch._fill_slot_map(runner, sched({"a": 5}))
