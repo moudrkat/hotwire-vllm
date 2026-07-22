@@ -117,17 +117,24 @@ model runners exercised):
 
 | model | steering works | unsteered untouched | TPOT idle → all-steered |
 |---|---|---|---|
+| Qwen3-14B-AWQ (4-bit) | ✓ | ✓ | 1.91 → 1.91 ms/tok |
+| Qwen3-8B-FP8 | ✓ | ✓ | 2.27 → 2.28 ms/tok |
 | Qwen3-4B-Instruct-2507 | ✓ | ✓ | 1.78 → 1.78 ms/tok |
 | Qwen3-0.6B | ✓ | ✓ | — |
 | Qwen2.5-1.5B-Instruct | ✓ | ✓ | 0.77 → 0.77 ms/tok |
 | Phi-3.5-mini-instruct | ✓ | ✓ | 1.73 → 1.73 ms/tok |
 | tiny-aya-water (Cohere) | ✓ | ✓ | 1.54 → 1.54 ms/tok |
 
-Larger models (OLMo-2-7B, command-r7b, gpt-oss-20b, Qwen3.5-4B) OOM'd on the
-16 GB test GPU before the plugin engaged — no architecture failure observed
-yet; reports from bigger cards welcome. The layer patch targets any
-`*DecoderLayer` module with the standard `(positions, hidden_states, residual)`
-signature.
+Quantized checkpoints work — steering touches the residual stream, not the
+weights, and the AWQ / FP8 rows above confirm it end-to-end, CUDA graphs
+captured (PIECEWISE + FULL).
+
+Models that still OOM on the 16 GB test GPU before the plugin engages:
+OLMo-2-7B, command-r7b, Qwen3.5-4B, gpt-oss-20b (13.8 GiB weight load
+succeeds, engine init doesn't), gemma-4-E4B-it (vision tower). No
+architecture failure observed yet; reports from bigger cards welcome. The
+layer patch targets any `*DecoderLayer` module with the standard
+`(positions, hidden_states, residual)` signature.
 
 ## Numbers
 
@@ -157,9 +164,8 @@ every batch size, to the second decimal.
 
 Untested configurations (no known issues, but nobody has run them — treat as
 unsupported until someone does): tensor parallel > 1, pipeline parallel,
-speculative decoding, LoRA, quantized checkpoints (AWQ/GPTQ/FP8 — expected to
-work, since steering touches the residual stream, not the weights, but
-unverified). Issues welcome.
+speculative decoding, LoRA, GPTQ and MXFP4 quantization (AWQ and FP8 are
+verified — see the table). Issues welcome.
 
 Known limitation: one vector per (layer, token) — multiple spec entries
 targeting the **same layer** don't stack; the last one wins. Different layers
