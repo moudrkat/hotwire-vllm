@@ -154,8 +154,27 @@ targeting the **same layer** don't stack; the last one wins. Different layers
 compose fine. Workaround: pre-combine same-layer vectors into one .pt
 (`a*v1 + b*v2`) and register the combo; native stacking is on the roadmap.
 
+Known limitation: the slot budget. Steering configs live in a fixed-size GPU
+table allocated before graph capture — CUDA graphs read fixed addresses, so
+it can never grow at runtime. Size it with `HOTWIRE_SLOTS` (default 16;
+a slot is one vector row, ~5 KB on a 4B model, so 256 costs ~1.3 MB and
+nothing per token). Each distinct **(vector, layer, scale)** combo occupies
+one slot **permanently** — nothing frees slots when requests finish. A fixed
+catalog of vectors at fixed scales therefore runs forever, but continuously
+varying scales (0.80, 0.83, 0.87, …) mint a fresh slot each and exhaust the
+table; once full, any step containing a request with an unregistrable combo
+runs unsteered (logged). Workaround today: round scales to a small fixed
+palette and set `HOTWIRE_SLOTS` generously at startup. The real fixes are on
+the roadmap below — slots *can* recycle (the scale isn't baked into the
+stored vector; the kernel reads it separately at replay), it's bookkeeping,
+not graph physics.
+
 Roadmap:
 - HTTP vector registration at runtime (via `vllm.endpoint_plugins`), replacing
   startup-only `$HOTWIRE_VECTORS`.
+- Slot eviction: refcount slots per in-flight request and `release()` when the
+  last user of a combo finishes, so the table recycles instead of filling.
+- Per-token scales: key slots by (vector, layer) only and move scale into a
+  per-token buffer — continuous intensities without minting new slots.
 - Norm-matched and position-targeted steering modes.
 - Tracking the RFC vllm-project/vllm#36998 Phase 2 interface as it lands.
