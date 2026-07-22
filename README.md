@@ -77,8 +77,6 @@ never the prompt — use it for vectors calibrated on generation-only steering
 (research rigs typically don't steer the prefill; applying such a vector to a
 long prompt as well multiplies the effective dose and can wreck coherence).
 
-```python
-```
 ```bash
 # OpenAI API
 curl .../v1/chat/completions -d '{..., "vllm_xargs":
