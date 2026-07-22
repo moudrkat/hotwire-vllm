@@ -77,6 +77,12 @@ never the prompt — use it for vectors calibrated on generation-only steering
 (research rigs typically don't steer the prefill; applying such a vector to a
 long prompt as well multiplies the effective dose and can wreck coherence).
 
+Lab twin: [brainscope](https://github.com/moudrkat/brainscope) accepts this
+exact spec and wire format — calibrate a vector under its lenses (its
+`export_hotwire` ships `.pt` files with a regime passport), deploy it here
+unchanged, and replay production conversations back under the lens when a
+vector misbehaves.
+
 ```bash
 # OpenAI API
 curl .../v1/chat/completions -d '{..., "vllm_xargs":
