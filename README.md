@@ -147,7 +147,9 @@ here; the gap grows with model size and batch pressure).
 
 Untested configurations (no known issues, but nobody has run them — treat as
 unsupported until someone does): tensor parallel > 1, pipeline parallel,
-speculative decoding, LoRA. Issues welcome.
+speculative decoding, LoRA, quantized checkpoints (AWQ/GPTQ/FP8 — expected to
+work, since steering touches the residual stream, not the weights, but
+unverified). Issues welcome.
 
 Known limitation: one vector per (layer, token) — multiple spec entries
 targeting the **same layer** don't stack; the last one wins. Different layers
