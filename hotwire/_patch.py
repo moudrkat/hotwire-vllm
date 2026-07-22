@@ -113,6 +113,14 @@ def _fill_slot_map(runner, scheduler_output) -> None:
     st.slot_map.fill_(-1)
     if not num_scheduled:
         return  # profile/dummy step — nothing scheduled, nothing to steer
+    try:
+        _walk_batch(runner, st, num_scheduled, specs)
+    except Exception:
+        st.slot_map.fill_(-1)  # never leave a partial fill behind
+        raise
+
+
+def _walk_batch(runner, st, num_scheduled, specs) -> None:
     start = 0
     for req_id in runner.input_batch.req_ids:
         n = num_scheduled.get(req_id)
@@ -324,6 +332,9 @@ def install() -> None:
             import traceback
 
             _dbg("slot fill failed:\n" + traceback.format_exc())
+            st = _state.get()
+            if st is not None:
+                st.slot_map.fill_(-1)
         return orig_exec(self, scheduler_output, *args, **kwargs)
 
     GPUModelRunner.load_model = load_model

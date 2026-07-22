@@ -74,6 +74,18 @@ def test_spec_cache_reused_and_pruned(state):
     assert state.slot_map.eq(-1).all()
 
 
+def test_bank_exhaustion_never_leaves_partial_fill(state):
+    # 4-slot bank: request "a" grabs slots, then "b" needs a 5th -> register
+    # raises mid-walk. The already-written spans for "a" must not survive.
+    a_spec = json.dumps([{"id": "vec", "layer": l, "scale": 1.0}
+                         for l in range(4)])
+    b_spec = json.dumps({"id": "vec", "layer": 2, "scale": 99.0})
+    runner = make_runner({"a": a_spec, "b": b_spec})
+    with pytest.raises(RuntimeError):
+        _patch._fill_slot_map(runner, sched({"a": 3, "b": 2}))
+    assert state.slot_map.eq(-1).all(), "partial fill must be wiped on error"
+
+
 def test_stale_slots_cleared_between_steps(state):
     runner = make_runner({"a": SPEC})
     _patch._fill_slot_map(runner, sched({"a": 5}))
