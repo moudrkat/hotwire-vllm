@@ -8,6 +8,9 @@ pip install hotwire-vllm
 
 **Activation steering for vLLM that doesn't turn off the engine.**
 
+For teams running vLLM in production who need per-request activation
+steering at native speed — CUDA graphs and torch.compile intact.
+
 Every existing steering tool for vLLM ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
 [EasySteer](https://arxiv.org/abs/2509.25175), IBM's vLLM Hook) forces
 `enforce_eager=True`: PyTorch forward hooks don't survive CUDA graph capture, so
