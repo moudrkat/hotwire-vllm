@@ -1,4 +1,9 @@
-"""hotwire: CUDA-graph-safe activation steering plugin for vLLM."""
+"""hotwire: CUDA-graph-safe activation steering plugin for vLLM.
+
+Usage guide for humans and agents: see AGENTS.md in this package, or the
+repo README. Steer a request with vllm_xargs={"hotwire": "<json spec
+string>"}; mind the fixed slot budget (one per distinct layer,scale).
+"""
 
 
 def register() -> None:

@@ -4,3 +4,8 @@ __pycache__/
 .venv/
 dist/
 notes/
+
+virtualenvs/
+.idea/
+dist/
+*.egg-info/
