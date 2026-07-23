@@ -1,5 +1,11 @@
 # hotwire
 
+[![PyPI](https://img.shields.io/pypi/v/hotwire-vllm)](https://pypi.org/project/hotwire-vllm/)
+
+```
+pip install hotwire-vllm
+```
+
 **Activation steering for vLLM that doesn't turn off the engine.**
 
 Every existing steering tool for vLLM ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
