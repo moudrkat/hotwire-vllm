@@ -71,9 +71,14 @@ def _steered_forward(orig_forward):
 
 def _install_into_model(runner) -> None:
     hf = runner.model_config.hf_config
+    # Multimodal models (e.g. Gemma-4/3n) keep the decoder dims in a nested
+    # text_config; the top-level config has no num_hidden_layers/hidden_size.
+    # get_text_config() returns the text sub-config (or self for text-only models).
+    tc = hf.get_text_config() if hasattr(hf, "get_text_config") else \
+        getattr(hf, "text_config", None) or hf
     st = _state.init(
-        n_layers=hf.num_hidden_layers,
-        hidden_dim=hf.hidden_size,
+        n_layers=tc.num_hidden_layers,
+        hidden_dim=tc.hidden_size,
         max_tokens=runner.max_num_tokens,
         device=runner.device,
         dtype=runner.model_config.dtype,
