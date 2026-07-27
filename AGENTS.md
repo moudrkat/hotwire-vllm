@@ -36,6 +36,12 @@ steer only generated tokens.
 - **Malformed specs degrade to unsteered**, silently. Validate your spec JSON.
 - Unsteered requests (including batchmates of steered ones) are untouched, and
   idle steering is zero-cost — CUDA graphs stay intact.
+- **Raw scale means nothing across layers/models.** If you're picking a
+  scale, calibrate it (hidden-directions/brainscope) rather than guessing.
+  Optionally, set `HOTWIRE_H_NORMS` + `HOTWIRE_MAX_REL_DOSE` to have hotwire
+  reject or clamp requests whose *relative* dose (`scale*||V||/||h||`) is high
+  enough to risk coherence collapse — see the README's "Relative-dose
+  guardrail" section. Off by default.
 
 Calibrate the vector first with
 [hidden-directions](https://github.com/moudrkat/hidden-directions) (it produces

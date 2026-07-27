@@ -100,6 +100,55 @@ hidden[tok] += scales[slot] * bank[slot]   where slot = slot_map[layer, tok] >= 
   (Benchmark target: unmeasurable vs baseline; RhizoNymph reported minimal
   overhead on H100.)
 
+## Relative-dose guardrail
+
+Raw scale isn't comparable across layers or models — it says nothing about
+how much of the residual stream a vector is overwriting. The dimensionless
+quantity that is comparable is the **relative dose**:
+
+    relative_dose(layer) = |scale| * ||V[layer]|| / ||h[layer]||
+
+where `||h[layer]||` is the residual-stream norm at that layer at
+deployment-representative sequence length. [steering-mechanics](https://github.com/moudrkat/steering-mechanics)
+found coherence collapse sets in around relative dose ~1.9, with safe
+working points around ~0.7 (Qwen3-4B/L20) — raw scale alone can't tell you
+which side of that line a request is on.
+
+hotwire can check this at request admission time (host-side, before a
+scale is written into the GPU `scales` buffer — never inside the CUDA
+graphs) if you give it a reference `||h||` per layer:
+
+```bash
+export HOTWIRE_H_NORMS=/path/to/h_norms.json   # {"20": 54.9, "21": 55.3, ...}
+export HOTWIRE_MAX_REL_DOSE=1.5                # reject requests over 1.5 (default mode)
+# export HOTWIRE_REL_DOSE_MODE=clamp           # ...or clamp scale down to the limit instead
+# export HOTWIRE_MAX_REL_DOSE=warn             # ...or just log every dose, never block
+```
+
+Produce `h_norms.json` with a forward pass at deployment-representative
+input length (short prompts massively understate ||h|| — massive-activation
+sink tokens dominate a short mean and dilute to nothing at length; see
+`steering-mechanics/experiments/skop_residual/h_norms_12k.py` for a working
+example) and map layer index to mean `||h||` at that layer. Vector norms
+(`||V[layer]||`) are computed once, at vector load time, from the `.pt`
+files already loaded via `$HOTWIRE_VECTORS`.
+
+Unconfigured (`HOTWIRE_MAX_REL_DOSE` unset, the default): zero overhead, no
+behavior change — same as hotwire without this feature. Configured without
+an `HOTWIRE_H_NORMS` table: a single startup warning, then every entry is
+"unmonitored" (registered as requested; there's no reference norm to judge
+it against). Every graded admission logs one line:
+
+```
+hotwire: dose id='tesla_car' layer=20 scale=8.0 ||V||=13.22 h_norm=54.9 rel_dose=1.93 exceeds max 1.50 action=rejected, entry not registered
+```
+
+Like every other steering failure mode in hotwire, "rejected" degrades that
+one (vector, layer, scale) entry to unsteered — logged loudly, but it never
+fails the underlying request (see the gotchas in AGENTS.md). Reject vs.
+clamp is a deployment choice: reject makes bad configs visible immediately;
+clamp keeps serving at the loudest dose still considered safe.
+
 ## Layout
 
 - `hotwire/_kernel.py` — Triton kernel + `hotwire::steer` custom op (working)
