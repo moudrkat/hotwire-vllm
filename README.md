@@ -11,6 +11,12 @@ pip install hotwire-vllm
 For teams running vLLM in production who need per-request activation
 steering at native speed — CUDA graphs and torch.compile intact.
 
+> **Status: instrument.** hotwire is serving infrastructure — it makes
+> per-request steering *possible* in production; whether steering
+> *behaves well* there is an open research question, studied as work in
+> progress (small N, not enough statistics yet) in
+> [steering-mechanics](https://github.com/moudrkat/steering-mechanics).
+
 Every existing steering tool for vLLM ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
 [EasySteer](https://arxiv.org/abs/2509.25175), IBM's vLLM Hook) forces
 `enforce_eager=True`: PyTorch forward hooks don't survive CUDA graph capture, so
