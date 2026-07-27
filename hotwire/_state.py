@@ -10,6 +10,7 @@ import os
 
 import torch
 
+from hotwire import _dose
 from hotwire._bank import VectorBank
 
 logger = logging.getLogger("hotwire")
@@ -28,6 +29,11 @@ class SteerState:
         self.max_tokens = max_tokens
         # host-side: vector_id -> (tensor on device, default layer, default scale)
         self.store: dict[str, tuple[torch.Tensor, int, float]] = {}
+        # host-side: vector_id -> per-layer ||V|| (or scalar for a single-layer
+        # vector), precomputed once at load time for the dose guardrail below
+        self.vector_norms: dict[str, torch.Tensor] = {}
+        self.h_norms: dict[int, float] = {}  # layer -> mean ||h||; see HOTWIRE_H_NORMS
+        self.dose_policy: "_dose.DosePolicy | None" = None  # None = guardrail off
 
     def load_store(self, path: str) -> None:
         """Load a direction dict: .pt with a (n_layers, hidden) tensor per file,
@@ -40,8 +46,21 @@ class SteerState:
             t = torch.load(f, map_location="cpu")
             if isinstance(t, dict):
                 t = next(v for v in t.values() if isinstance(v, torch.Tensor))
+            self.vector_norms[name] = t.norm(dim=-1) if t.dim() == 2 else t.norm()
             self.store[name] = (t.to(self.bank.bank.device), -1, 1.0)
             logger.info("hotwire: loaded vector %r %s", name, tuple(t.shape))
+
+    def load_h_norms(self, path: str) -> None:
+        """Load a layer -> mean ||h|| table for the relative-dose guardrail
+        (HOTWIRE_MAX_REL_DOSE). Produce one with a forward pass at
+        deployment-representative sequence length; reference script:
+        steering-mechanics/experiments/skop_residual/h_norms_12k.py.
+        JSON: {"20": 54.9, "21": 55.3, ...} (layer index -> mean ||h||)."""
+        with open(path) as f:
+            raw = json.load(f)
+        self.h_norms = {int(k): float(v) for k, v in raw.items()}
+        logger.info("hotwire: loaded h-norm table (%d layers) from %s",
+                    len(self.h_norms), path)
 
     def slot_for(self, vector_id: str, layer: int, scale: float) -> int | None:
         """Resolve request spec -> bank slot, registering lazily."""
@@ -55,6 +74,13 @@ class SteerState:
             return None
         t = entry[0]
         row = t[layer] if t.dim() == 2 else t
+        if self.dose_policy is not None:
+            norms = self.vector_norms[vector_id]
+            v_norm = float(norms[layer]) if norms.dim() else float(norms)
+            scale, action = _dose.check(self.dose_policy, self.h_norms.get(layer),
+                                        vector_id, layer, scale, v_norm)
+            if action == "rejected":
+                return None
         try:
             return self.bank.register(key, row.to(torch.float32), scale)
         except RuntimeError as e:
@@ -76,6 +102,14 @@ def init(n_layers: int, hidden_dim: int, max_tokens: int,
         vectors = os.environ.get("HOTWIRE_VECTORS")
         if vectors:
             _STATE.load_store(vectors)
+        h_norms = os.environ.get("HOTWIRE_H_NORMS")
+        if h_norms:
+            _STATE.load_h_norms(h_norms)
+        _STATE.dose_policy = _dose.load_policy()
+        if _STATE.dose_policy is not None and not _STATE.h_norms:
+            logger.warning("hotwire: HOTWIRE_MAX_REL_DOSE is set but no h-norm "
+                           "table was loaded (set HOTWIRE_H_NORMS); the "
+                           "guardrail is a no-op until one is provided")
         logger.info("hotwire: state ready (%d layers, %d slots, %d max tokens)",
                     n_layers, n_slots, max_tokens)
     return _STATE
