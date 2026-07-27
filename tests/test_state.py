@@ -126,3 +126,14 @@ def test_slot_for_unmonitored_layer_still_registers(tmp_path):
     slot = st.slot_for("vec", 2, 999.0)
     assert slot is not None
     assert st.bank.scales[slot].item() == 999.0
+
+
+def test_load_h_norms_accepts_wrapped_measure_output(tmp_path):
+    """measure-h-norms (hidden-directions) writes {"h_norms": {...}, ...} —
+    the guardrail must eat that file as-is, not just the flat mapping."""
+    p = tmp_path / "h.json"
+    p.write_text(json.dumps({"model": "M", "context_tokens": 12288,
+                             "note": "x", "h_norms": {"20": 54.9, "21": 55.3}}))
+    state = make_state()
+    state.load_h_norms(str(p))
+    assert state.h_norms == {20: 54.9, 21: 55.3}

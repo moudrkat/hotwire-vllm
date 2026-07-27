@@ -55,9 +55,13 @@ class SteerState:
         (HOTWIRE_MAX_REL_DOSE). Produce one with a forward pass at
         deployment-representative sequence length; reference script:
         steering-mechanics/experiments/skop_residual/h_norms_12k.py.
-        JSON: {"20": 54.9, "21": 55.3, ...} (layer index -> mean ||h||)."""
+        JSON: {"20": 54.9, "21": 55.3, ...} (layer index -> mean ||h||),
+        or the wrapped output of hidden-directions measure-h-norms
+        ({"h_norms": {...}, "model": ..., ...})."""
         with open(path) as f:
             raw = json.load(f)
+        if isinstance(raw, dict) and isinstance(raw.get("h_norms"), dict):
+            raw = raw["h_norms"]
         self.h_norms = {int(k): float(v) for k, v in raw.items()}
         logger.info("hotwire: loaded h-norm table (%d layers) from %s",
                     len(self.h_norms), path)
