@@ -1,9 +1,10 @@
-"""Wire format for vectors: JSON + base64 or safetensors. Never pickle.
+"""Wire format for vectors: JSON + base64 — data, not code. Never pickle.
 
-A request references a registered vector by id:
-    vllm_xargs = {"hotwire": '{"vectors": [{"id": "tesla_car", "scale": 1.5, "layer": 20}]}'}
-Vectors themselves are registered out-of-band (server endpoint or local call)
-as raw float lists / base64 buffers / safetensors — data, not code.
+Reserved for the roadmap's runtime HTTP registration; the shipped plugin
+loads vectors operator-side from $HOTWIRE_VECTORS (see _state.py) and the
+request spec it parses is the flat `{"id", "layer", "scale"}` form (or a
+list of them) documented in the README — not the `{"vectors": [...]}` form
+parsed here.
 """
 import base64
 import json

@@ -20,8 +20,7 @@ change from hotwire without this module.
 
     HOTWIRE_MAX_REL_DOSE=warn         # log every dose, never block or clamp
     HOTWIRE_MAX_REL_DOSE=1.5          # reject entries over 1.5 (default mode)
-    HOTWIRE_MAX_REL_DOSE=1.5
-    HOTWIRE_REL_DOSE_MODE=clamp       # ...or clamp scale down to the limit
+    HOTWIRE_MAX_REL_DOSE=1.5 HOTWIRE_REL_DOSE_MODE=clamp   # ...or clamp scale down to the limit
 
 Needs an h-norm table (HOTWIRE_H_NORMS) to compute anything; without one the
 guardrail is a documented no-op (warned once at startup, not per request).

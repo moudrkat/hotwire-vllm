@@ -1,4 +1,4 @@
-"""GPU unit tests for the steering op (run on aorus: pytest tests/)."""
+"""GPU unit tests for the steering op (pytest tests/ on a CUDA box)."""
 import pytest
 import torch
 

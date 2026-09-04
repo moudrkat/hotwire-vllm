@@ -37,10 +37,15 @@ an out-of-tree plugin: `pip install`, no fork, registered via vLLM's official
 ## ⚡ Run in 30 s
 
 ```bash
-pip install -e .          # registers the vllm.general_plugins entry point
-export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files, (n_layers, hidden) each
+pip install hotwire-vllm                  # registers the vllm.general_plugins entry point
+export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files (or one .pt): (n_layers, hidden), or a single-layer (hidden,) vector
 vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
 ```
+
+`HOTWIRE_VECTORS` accepts a directory of `.pt` files or a single `.pt`; each
+file is a `(n_layers, hidden)` matrix or a `(hidden,)` vector usable at any
+layer (a dict-wrapped tensor works too — the first tensor wins). The
+vector id is the file name without `.pt`.
 
 Steer any request by id + layer + scale:
 
@@ -49,8 +54,9 @@ Steer any request by id + layer + scale:
 SamplingParams(extra_args={"hotwire": '{"id": "tesla_car", "layer": 20, "scale": 1.5}'})
 ```
 
-Optional per-entry flag `"decode_only": true` steers generated tokens only,
-never the prompt — use it for vectors calibrated on generation-only steering
+Optional per-entry flag `"decode_only": true` skips every multi-token span
+(the prefill) and steers single-token decode steps only — use it for
+vectors calibrated on generation-only steering
 (research rigs typically don't steer the prefill; applying such a vector to a
 long prompt as well multiplies the effective dose and can wreck coherence).
 
@@ -90,12 +96,14 @@ hidden[tok] += scales[slot] * bank[slot]   where slot = slot_map[layer, tok] >= 
   opaque to torch.compile, captured into CUDA graphs as a fixed kernel on
   fixed addresses. Steering on/off/vector changes are buffer *content*
   updates between replays (host-side copy), never a re-capture.
-- **Per-request:** a pre-forward hook reads `forward_context`
-  (`query_start_loc` + `req_ids`, same bookkeeping vllm-lens validated)
-  and fills `slot_map` for the step.
-- **No pickle:** vectors enter as safetensors files or base64 JSON via a
-  registration endpoint (`POST /steer/vectors`), requests reference them by
-  id + scale in `vllm_xargs`. Nothing executable crosses the wire.
+- **Per-request:** a thin wrapper on the model runner (`execute_model` on
+  the classic runner, `prepare_inputs` on V2) reads each step's `req_ids`
+  and per-request token spans — the same bookkeeping vllm-lens validated —
+  and fills `slot_map` before the graph replays.
+- **Nothing executable crosses the wire:** vectors are preloaded
+  operator-side from `$HOTWIRE_VECTORS` (`.pt` tensors, loaded with
+  `weights_only=True`); a request only names one by id + layer + scale in
+  `vllm_xargs`. Runtime HTTP registration is on the roadmap.
 - **Zero cost when idle:** `slot_map` all `-1` → kernel early-exits per token.
   (Benchmark target: unmeasurable vs baseline; RhizoNymph reported minimal
   overhead on H100.)
@@ -119,8 +127,8 @@ scale is written into the GPU `scales` buffer — never inside the CUDA
 graphs) if you give it a reference `||h||` per layer:
 
 ```bash
-export HOTWIRE_H_NORMS=/path/to/h_norms.json   # {"20": 54.9, "21": 55.3, ...}
-export HOTWIRE_MAX_REL_DOSE=1.5                # reject requests over 1.5 (default mode)
+export HOTWIRE_H_NORMS=/path/to/h_norms.json   # {"20": 54.9, "21": 55.3, ...}, or hidden-directions' measure-h-norms output
+export HOTWIRE_MAX_REL_DOSE=1.5                # reject entries over 1.5 — the request still runs, unsteered (default mode)
 # export HOTWIRE_REL_DOSE_MODE=clamp           # ...or clamp scale down to the limit instead
 # export HOTWIRE_MAX_REL_DOSE=warn             # ...or just log every dose, never block
 ```
@@ -140,7 +148,7 @@ an `HOTWIRE_H_NORMS` table: a single startup warning, then every entry is
 it against). Every graded admission logs one line:
 
 ```
-hotwire: dose id='tesla_car' layer=20 scale=8.0 ||V||=13.22 h_norm=54.9 rel_dose=1.93 exceeds max 1.50 action=rejected, entry not registered
+hotwire: dose id='tesla_car' layer=20 scale=8.0 ||V||=13.2200 h_norm=54.9000 rel_dose=1.9260 exceeds max 1.5000 action=rejected, entry not registered
 ```
 
 Like every other steering failure mode in hotwire, "rejected" degrades that
@@ -151,11 +159,16 @@ clamp keeps serving at the loudest dose still considered safe.
 
 ## Layout
 
-- `hotwire/_kernel.py` — Triton kernel + `hotwire::steer` custom op (working)
-- `hotwire/_bank.py` — slot allocation, vector registration (working)
-- `hotwire/_patch.py` — decoder-layer wrapping + pre-forward slot fill (WIP:
-  integration points against vLLM 0.25.x)
-- `hotwire/wire.py` — JSON/safetensors vector wire format, no pickle (working)
+- `hotwire/_kernel.py` — Triton kernel + `hotwire::steer` custom op
+- `hotwire/_bank.py` — slot allocation, vector registration
+- `hotwire/_patch.py` — vLLM integration: decoder-layer wrapping before
+  compile, per-step `slot_map` fill from the scheduler's token spans (both
+  model runners), compile-cache salting
+- `hotwire/_state.py` — per-process state: the persistent GPU buffers the graphs read, loaded vectors, dose policy
+- `hotwire/_dose.py` — relative-dose guardrail (host-side admission check)
+- `hotwire/wire.py` — JSON/safetensors vector wire format, no pickle
+- `hotwire/verify.py` — `python -m hotwire.verify`, the one-command hardware report
+- `benchmarks/bench_decode.py` — TTFT / TPOT, idle vs steered vs eager
 
 ## Verify on your hardware
 
@@ -186,7 +199,11 @@ hotwire also salts vLLM's torch.compile/AOT cache key (`VllmConfig.compute_hash`
 plugins, so without the salt a stale cache silently serves a model with no
 steering op in it.
 
-Tests: `pytest` (unit, CPU-safe), `pytest -m integration` (real engine, GPU).
+Tests: `pytest` (unit, CPU-safe), `pytest -m integration` (real engine, GPU;
+`HOTWIRE_TEST_MODEL` overrides the default Qwen3-0.6B). `HOTWIRE_DEBUG=1`
+appends a per-process trace of plugin registration and slot fills to
+`/tmp/hotwire_dbg.log` — vLLM's worker processes don't forward the plugin's
+logger, so this is the way to see whether the patch actually engaged.
 
 Verified architectures (chaos-vector A/B + batchmate-isolation check, both
 model runners exercised):
@@ -267,7 +284,8 @@ stored vector; the kernel reads it separately at replay), it's bookkeeping,
 not graph physics.
 
 Roadmap:
-- HTTP vector registration at runtime (via `vllm.endpoint_plugins`), replacing
+- HTTP vector registration at runtime (via `vllm.endpoint_plugins`;
+  `hotwire/wire.py` already holds the pickle-free wire format), replacing
   startup-only `$HOTWIRE_VECTORS`.
 - Slot eviction: refcount slots per in-flight request and `release()` when the
   last user of a combo finishes, so the table recycles instead of filling.
@@ -309,5 +327,5 @@ flowchart LR
     class hw here;
 ```
 
-*Highlighted = this repo. The full lab map (with the two other repos' stories) lives on [moudrkat](https://github.com/moudrkat).*
+*Highlighted = this repo. The full lab map (with the other repos' stories) lives on [moudrkat](https://github.com/moudrkat).*
 

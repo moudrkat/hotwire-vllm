@@ -2,7 +2,7 @@
 
 Usage guide for humans and agents: see AGENTS.md in this package, or the
 repo README. Steer a request with vllm_xargs={"hotwire": "<json spec
-string>"}; mind the fixed slot budget (one per distinct layer,scale).
+string>"}; mind the fixed slot budget (one per distinct vector,layer,scale).
 """
 
 
