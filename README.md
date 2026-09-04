@@ -1,4 +1,4 @@
-# hotwire
+# hotwire-vllm
 
 [![PyPI](https://img.shields.io/pypi/v/hotwire-vllm)](https://pypi.org/project/hotwire-vllm/)
 
@@ -17,7 +17,7 @@ steering at native speed — CUDA graphs and torch.compile intact.
 > progress (small N, not enough statistics yet) in
 > [steering-mechanics](https://github.com/moudrkat/steering-mechanics).
 
-Every existing steering tool for vLLM ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
+Every steering tool for vLLM that installs without forking it ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
 [EasySteer](https://arxiv.org/abs/2509.25175), IBM's vLLM Hook) forces
 `enforce_eager=True`: PyTorch forward hooks don't survive CUDA graph capture, so
 they disable CUDA graphs and torch.compile for the whole server — every request
@@ -42,6 +42,9 @@ export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files (or one .pt): (n_la
 vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
 ```
 
+No vector yet? [`python -m hotwire.verify`](#verify-on-your-hardware) makes
+a throwaway one and checks the whole path on your GPU.
+
 `HOTWIRE_VECTORS` accepts a directory of `.pt` files or a single `.pt`; each
 file is a `(n_layers, hidden)` matrix or a `(hidden,)` vector usable at any
 layer (a dict-wrapped tensor works too — the first tensor wins). The
@@ -53,6 +56,16 @@ Steer any request by id + layer + scale:
 # offline
 SamplingParams(extra_args={"hotwire": '{"id": "tesla_car", "layer": 20, "scale": 1.5}'})
 ```
+
+```bash
+# OpenAI API
+curl .../v1/chat/completions -d '{..., "vllm_xargs":
+  {"hotwire": "{\"id\": \"tesla_car\", \"layer\": 20, \"scale\": 1.5}"}}'
+```
+
+Unsteered requests — including batchmates of steered ones — are untouched.
+Malformed specs and unknown vector ids degrade to "unsteered", never to a
+failed request.
 
 Optional per-entry flag `"decode_only": true` skips every multi-token span
 (the prefill) and steers single-token decode steps only — use it for
@@ -66,15 +79,21 @@ exact spec and wire format — calibrate a vector under its lenses (its
 unchanged, and replay production conversations back under the lens when a
 vector misbehaves.
 
+## Verify on your hardware
+
+Two commands, ~3 minutes on any CUDA box with vLLM installed:
+
 ```bash
-# OpenAI API
-curl .../v1/chat/completions -d '{..., "vllm_xargs":
-  {"hotwire": "{\"id\": \"tesla_car\", \"layer\": 20, \"scale\": 1.5}"}}'
+pip install hotwire-vllm
+python -m hotwire.verify --model Qwen/Qwen3-0.6B   # any HF model id works
 ```
 
-Unsteered requests — including batchmates of steered ones — are untouched.
-Malformed specs and unknown vector ids degrade to "unsteered", never to a
-failed request.
+It generates a throwaway steering vector for the model, checks that steering
+fires, that unsteered requests (including batchmates) are untouched, and
+compares decode cost idle vs all-steered — then prints a report block.
+**Please paste the report into an issue**, especially from hardware, model
+families, or configs (TP > 1, 7B+, H100s) the tables below don't cover yet —
+that's currently the most useful contribution this project can receive.
 
 ## Design
 
@@ -104,9 +123,9 @@ hidden[tok] += scales[slot] * bank[slot]   where slot = slot_map[layer, tok] >= 
   operator-side from `$HOTWIRE_VECTORS` (`.pt` tensors, loaded with
   `weights_only=True`); a request only names one by id + layer + scale in
   `vllm_xargs`. Runtime HTTP registration is on the roadmap.
-- **Zero cost when idle:** `slot_map` all `-1` → kernel early-exits per token.
-  (Benchmark target: unmeasurable vs baseline; RhizoNymph reported minimal
-  overhead on H100.)
+- **Zero cost when idle:** `slot_map` all `-1` → kernel early-exits per token;
+  idle and fully-steered decode are both within noise of vanilla
+  ([numbers](#numbers)).
 
 ## Relative-dose guardrail
 
@@ -119,7 +138,7 @@ quantity that is comparable is the **relative dose**:
 where `||h[layer]||` is the residual-stream norm at that layer at
 deployment-representative sequence length. [steering-mechanics](https://github.com/moudrkat/steering-mechanics)
 found coherence collapse sets in around relative dose ~1.9, with safe
-working points around ~0.7 (Qwen3-4B/L20) — raw scale alone can't tell you
+working points around ~0.7 (Qwen3-4B/L20; small N, treat as provisional) — raw scale alone can't tell you
 which side of that line a request is on.
 
 hotwire can check this at request admission time (host-side, before a
@@ -129,15 +148,16 @@ graphs) if you give it a reference `||h||` per layer:
 ```bash
 export HOTWIRE_H_NORMS=/path/to/h_norms.json   # {"20": 54.9, "21": 55.3, ...}, or hidden-directions' measure-h-norms output
 export HOTWIRE_MAX_REL_DOSE=1.5                # reject entries over 1.5 — the request still runs, unsteered (default mode)
-# export HOTWIRE_REL_DOSE_MODE=clamp           # ...or clamp scale down to the limit instead
 # export HOTWIRE_MAX_REL_DOSE=warn             # ...or just log every dose, never block
+# export HOTWIRE_MAX_REL_DOSE=1.5 HOTWIRE_REL_DOSE_MODE=clamp   # ...or clamp scale down to the limit instead
 ```
 
-Produce `h_norms.json` with a forward pass at deployment-representative
-input length (short prompts massively understate ||h|| — massive-activation
-sink tokens dominate a short mean and dilute to nothing at length; see
-`steering-mechanics/experiments/skop_residual/h_norms_12k.py` for a working
-example) and map layer index to mean `||h||` at that layer. Vector norms
+Produce `h_norms.json` with `hidden-directions measure-h-norms --model … --out h_norms.json`
+([hidden-directions](https://github.com/moudrkat/hidden-directions)), or
+your own forward pass at deployment-representative input length (short
+prompts understate ||h|| by ~7× — massive-activation sink tokens dominate a
+short mean and dilute to nothing at length), mapping layer index to mean
+`||h||` at that layer. Vector norms
 (`||V[layer]||`) are computed once, at vector load time, from the `.pt`
 files already loaded via `$HOTWIRE_VECTORS`.
 
@@ -169,22 +189,6 @@ clamp keeps serving at the loudest dose still considered safe.
 - `hotwire/wire.py` — JSON/safetensors vector wire format, no pickle
 - `hotwire/verify.py` — `python -m hotwire.verify`, the one-command hardware report
 - `benchmarks/bench_decode.py` — TTFT / TPOT, idle vs steered vs eager
-
-## Verify on your hardware
-
-Two commands, ~3 minutes on any CUDA box with vLLM installed:
-
-```bash
-pip install git+https://github.com/moudrkat/hotwire-vllm
-python -m hotwire.verify --model Qwen/Qwen3-0.6B   # any HF model id works
-```
-
-It generates a throwaway steering vector for the model, checks that steering
-fires, that unsteered requests (including batchmates) are untouched, and
-compares decode cost idle vs all-steered — then prints a report block.
-**Please paste the report into an issue**, especially from hardware, model
-families, or configs (TP > 1, 7B+, H100s) the tables below don't cover yet —
-that's currently the most useful contribution this project can receive.
 
 ## Status
 
@@ -257,6 +261,8 @@ every batch size, to the second decimal.
 | 2 | 6.97 ms/tok | 6.97 | 7.30 |
 | 8 | 1.78 ms/tok | 1.78 | 1.88 |
 
+## Limitations
+
 Untested configurations (no known issues, but nobody has run them — treat as
 unsupported until someone does): tensor parallel > 1, pipeline parallel,
 speculative decoding, LoRA, GPTQ and MXFP4 quantization (AWQ and FP8 are
@@ -283,7 +289,8 @@ the roadmap below — slots *can* recycle (the scale isn't baked into the
 stored vector; the kernel reads it separately at replay), it's bookkeeping,
 not graph physics.
 
-Roadmap:
+## Roadmap
+
 - HTTP vector registration at runtime (via `vllm.endpoint_plugins`;
   `hotwire/wire.py` already holds the pickle-free wire format), replacing
   startup-only `$HOTWIRE_VECTORS`.
@@ -293,6 +300,7 @@ Roadmap:
   per-token buffer — continuous intensities without minting new slots.
 - Norm-matched and position-targeted steering modes.
 - Tracking the RFC vllm-project/vllm#36998 Phase 2 interface as it lands.
+
 ## Where this sits in the lab
 
 ```mermaid
@@ -306,7 +314,8 @@ flowchart LR
     on["📰 old-news<br/>stale history vs system prompt"]
 
     hd -->|vectors| bs
-    hd -->|vector + passport| hw
+    hd -->|vector| hw
+    bs -->|vector + passport| hw
     bs --> st
     bs --> tm
     bs -->|causal replay| sm
