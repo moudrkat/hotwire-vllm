@@ -9,8 +9,8 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install (CPU torch + triton)
@@ -18,5 +18,7 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install triton pytest
           pip install -e .
+      - name: Packaged agent guide is in sync with the repo copy
+        run: diff AGENTS.md hotwire/AGENTS.md
       - name: Unit tests (GPU + integration tests auto-skip)
         run: pytest -q
