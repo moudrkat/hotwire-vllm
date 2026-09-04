@@ -43,7 +43,7 @@ class SteerState:
                   if f.endswith(".pt")] if os.path.isdir(path) else [path])
         for f in files:
             name = os.path.splitext(os.path.basename(f))[0]
-            t = torch.load(f, map_location="cpu")
+            t = torch.load(f, map_location="cpu", weights_only=True)
             if isinstance(t, dict):
                 t = next(v for v in t.values() if isinstance(v, torch.Tensor))
             self.vector_norms[name] = t.norm(dim=-1) if t.dim() == 2 else t.norm()

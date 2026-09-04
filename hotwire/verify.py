@@ -59,8 +59,6 @@ def main() -> None:
     base = gen()[0]
     steered = gen({"hotwire": spec})[0]
     base_after = gen()[0]
-    t1 = gen()[0]
-    t2 = gen({"hotwire": spec})[0]  # separate calls; batch test below
     mixed = llm.generate(
         [prompt, prompt],
         [SamplingParams(temperature=0.0, max_tokens=25),
