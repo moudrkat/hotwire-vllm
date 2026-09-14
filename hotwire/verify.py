@@ -13,6 +13,7 @@ hardware or models the README table doesn't cover yet.
 import argparse
 import json
 import os
+import shutil
 import statistics
 import sys
 import tempfile
@@ -37,6 +38,15 @@ def main() -> None:
     torch.save(torch.randn(cfg.num_hidden_layers, cfg.hidden_size),
                os.path.join(vec_dir, "chaos.pt"))
     os.environ["HOTWIRE_VECTORS"] = vec_dir
+
+    # vLLM's default FlashInfer sampler JIT-compiles with nvcc at engine start.
+    # On a driver-only box that dies with "Could not find nvcc" before the
+    # plugin ever runs; fall back to the torch sampler (identical for greedy).
+    if (os.environ.get("VLLM_USE_FLASHINFER_SAMPLER") is None
+            and shutil.which("nvcc") is None
+            and not os.path.isdir(os.environ.get("CUDA_HOME", "/usr/local/cuda"))):
+        os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+        print("hotwire.verify: no nvcc found — VLLM_USE_FLASHINFER_SAMPLER=0", flush=True)
 
     from vllm import LLM, SamplingParams
 

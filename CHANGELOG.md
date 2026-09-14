@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 (2026-09-14)
+
+- `hotwire.verify` no longer dies with `Could not find nvcc` on a driver-only
+  box: when no CUDA toolkit is found and `VLLM_USE_FLASHINFER_SAMPLER` is
+  unset, it sets it to `0` so vLLM's FlashInfer sampler does not JIT-compile
+  at engine start (identical for the greedy decoding verify uses). Found by
+  running the README's two-command path on a fresh venv. README says what to
+  set for `vllm serve`.
+
 ## 0.1.0 (2026-09-04)
 
 - **Relative-dose guardrail** (optional, off by default): an admission check
