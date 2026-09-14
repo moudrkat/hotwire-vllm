@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 (2026-09-14)
+
+- The nvcc fallback moved from `hotwire.verify` into the plugin itself:
+  `register()` sets `VLLM_USE_FLASHINFER_SAMPLER=0` when no CUDA toolkit is
+  found and the variable is unset, so `vllm serve` on a driver-only box
+  starts instead of dying in vLLM's FlashInfer sampler JIT. Says so on
+  stderr; an explicit value always wins. `hotwire.verify` reuses it.
+
 ## 0.1.1 (2026-09-14)
 
 - `hotwire.verify` no longer dies with `Could not find nvcc` on a driver-only

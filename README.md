@@ -88,11 +88,12 @@ pip install hotwire-vllm
 python -m hotwire.verify --model Qwen/Qwen3-0.6B   # any HF model id works
 ```
 
-No `nvcc` on the box (a driver-only install, no CUDA toolkit)? vLLM's default
-FlashInfer sampler JIT-compiles at start-up and dies with `Could not find
-nvcc`. `hotwire.verify` sets `VLLM_USE_FLASHINFER_SAMPLER=0` for you in that
-case; for `vllm serve` set it yourself (or install the toolkit). Unrelated to
-the plugin — vanilla vLLM does the same.
+No `nvcc` on the box (driver only, no CUDA toolkit)? vLLM's default
+FlashInfer sampler JIT-compiles at engine start and dies with `Could not
+find nvcc` — with or without this plugin. When the toolkit is missing and
+`VLLM_USE_FLASHINFER_SAMPLER` is unset, hotwire sets it to `0` at plugin
+registration (vLLM's torch sampler: same distribution, a little slower) and
+says so on stderr. Set the variable yourself to override either way.
 
 It generates a throwaway steering vector for the model, checks that steering
 fires, that unsteered requests (including batchmates) are untouched, and

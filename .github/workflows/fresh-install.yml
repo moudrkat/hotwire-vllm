@@ -1,0 +1,41 @@
+name: fresh install from PyPI
+
+# Installs the *published* package into an empty environment, the way a
+# reader of the README does, and checks it still imports, registers as a
+# vLLM plugin and passes the unit tests. Catches a new torch/vllm release
+# breaking the pip path — which is how 0.1.1 and 0.1.2 came about.
+# GPU behaviour is not covered here (no GPU runners); run
+# `python -m hotwire.verify` on real hardware for that.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays 06:17 UTC
+  workflow_dispatch:
+
+jobs:
+  pip-path:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7     # only for tests/ — the package comes from PyPI
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: pip install hotwire-vllm (plus CPU torch + triton for the unit tests)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install triton pytest
+          pip install hotwire-vllm
+          pip show hotwire-vllm | head -2
+      - name: Plugin entry point is registered
+        run: |
+          python - <<'PY'
+          from importlib.metadata import entry_points
+          eps = [e for e in entry_points(group="vllm.general_plugins") if e.name == "hotwire"]
+          assert eps and eps[0].value == "hotwire:register", eps
+          import hotwire
+          print("entry point ok:", eps[0].value, "fallback:", hotwire.flashinfer_sampler_fallback())
+          PY
+      - name: Unit tests against the installed package
+        run: |
+          rm -rf hotwire   # make sure tests import the PyPI copy, not the checkout
+          pytest -q tests
