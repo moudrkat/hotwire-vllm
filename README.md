@@ -37,13 +37,19 @@ an out-of-tree plugin: `pip install`, no fork, registered via vLLM's official
 ## ⚡ Run in 30 s
 
 ```bash
-pip install hotwire-vllm                  # registers the vllm.general_plugins entry point
+pip install vllm hotwire-vllm             # plugin registers itself (vllm.general_plugins); tested on vLLM 0.25.1
 export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files (or one .pt): (n_layers, hidden), or a single-layer (hidden,) vector
 vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
 ```
 
 No vector yet? [`python -m hotwire.verify`](#verify-on-your-hardware) makes
 a throwaway one and checks the whole path on your GPU.
+
+**Something broke?** [Open an issue](https://github.com/moudrkat/hotwire-vllm/issues)
+with the `hotwire.verify` report block (or, if that fails too, the command,
+the last 40 lines of output, and `pip show vllm torch hotwire-vllm`). A
+weekly CI job installs the published wheel into an empty environment, but it
+has no GPU — your box is the test.
 
 `HOTWIRE_VECTORS` accepts a directory of `.pt` files or a single `.pt`; each
 file is a `(n_layers, hidden)` matrix or a `(hidden,)` vector usable at any
