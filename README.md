@@ -37,7 +37,7 @@ an out-of-tree plugin: `pip install`, no fork, registered via vLLM's official
 ## ⚡ Run in 30 s
 
 ```bash
-pip install vllm hotwire-vllm             # plugin registers itself (vllm.general_plugins); tested on vLLM 0.25.1
+pip install vllm hotwire-vllm             # plugin registers itself (vllm.general_plugins); verified on vLLM 0.25.1 and 0.29.0
 export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files (or one .pt): (n_layers, hidden), or a single-layer (hidden,) vector
 vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
 ```
