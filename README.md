@@ -37,7 +37,7 @@ an out-of-tree plugin: `pip install`, no fork, registered via vLLM's official
 ## ⚡ Run in 30 s
 
 ```bash
-pip install vllm hotwire-vllm             # plugin registers itself (vllm.general_plugins); verified on vLLM 0.25.1 and 0.29.0
+pip install vllm hotwire-vllm             # plugin registers itself (vllm.general_plugins); verified on vLLM 0.25.1, 0.29.0, 0.33.0 and a 0.34 nightly
 export HOTWIRE_VECTORS=/path/to/vectors   # dir of .pt files (or one .pt): (n_layers, hidden), or a single-layer (hidden,) vector
 vllm serve Qwen/Qwen3-4B-Instruct-2507    # CUDA graphs stay ON
 ```
@@ -211,10 +211,17 @@ dense generate models), with CUDA graphs captured (PIECEWISE + FULL) and
 torch.compile on. Verified on Qwen3-0.6B / Qwen3-4B on a single 16 GB GPU:
 solo steering, mixed batches, decode-phase graph replays.
 
-hotwire also salts vLLM's torch.compile/AOT cache key (`VllmConfig.compute_hash`)
-— the op is traced into the compiled model, and vLLM's cache doesn't know about
-plugins, so without the salt a stale cache silently serves a model with no
-steering op in it.
+Up to vLLM 0.33, hotwire also salts vLLM's torch.compile/AOT cache key
+(`VllmConfig.compute_hash`) — the op is traced into the compiled model, and
+vLLM's cache doesn't know about plugins, so without the salt a stale cache
+silently serves a model with no steering op in it. From vLLM 0.34
+(vllm-project/vllm#65652) the key hashes the source of every traced file,
+hotwire's included, and the salt is skipped.
+
+On vLLM 0.33.0 and a 0.34 nightly (0.34.0rc1.dev321, which has only the V2
+runner), `python -m hotwire.verify` passes on Qwen3-0.6B: steering changes
+the output, unsteered requests are untouched, mixed batches are isolated,
+decode TPOT 0.40 → 0.40 ms/tok.
 
 Tests: `pytest` (unit, CPU-safe), `pytest -m integration` (real engine, GPU;
 `HOTWIRE_TEST_MODEL` overrides the default Qwen3-0.6B). `HOTWIRE_DEBUG=1`

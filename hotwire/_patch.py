@@ -271,6 +271,10 @@ def _install_v2(RunnerV2) -> None:
     _dbg("installed on V2 model runner")
 
 
+class _NoSalt(Exception):
+    """vLLM's compile-cache key already covers the plugin's code."""
+
+
 def install() -> None:
     """Entry point hook — cheap, idempotent, safe on non-worker processes."""
     global _installed
@@ -279,15 +283,21 @@ def install() -> None:
     _dbg("install() called")
 
     # Salt vLLM's compile-cache key: our op is traced into the compiled model,
-    # but vLLM's cache hash knows nothing about plugins. Without this, a cache
-    # from a hotwire-less run silently serves a model with no steering op in it
-    # (and vice versa after uninstall).
+    # but up to 0.33 vLLM's cache hash knows nothing about plugins. Without this,
+    # a cache from a hotwire-less run silently serves a model with no steering op
+    # in it (and vice versa after uninstall). From vllm-project/vllm#65652 on,
+    # configs give compile_factors() instead and the key hashes the source of
+    # every traced file, this one included, so there is nothing to salt.
     try:
         import hashlib
 
         from importlib.metadata import version
 
         from vllm.config import VllmConfig
+
+        if not hasattr(VllmConfig, "compute_hash") and hasattr(VllmConfig, "compile_factors"):
+            _dbg("compile cache key hashes traced code (compile_factors); no salt needed")
+            raise _NoSalt
 
         salt = "hotwire-" + version("hotwire-vllm")
         orig_hash = VllmConfig.compute_hash
@@ -298,6 +308,8 @@ def install() -> None:
 
         VllmConfig.compute_hash = compute_hash
         _dbg(f"compile cache salted with {salt!r}")
+    except _NoSalt:
+        pass
     except Exception as e:
         logger.warning("hotwire: could not salt compile cache key (%r); "
                        "clear ~/.cache/vllm/torch_compile_cache after "
@@ -313,7 +325,7 @@ def install() -> None:
     try:
         from vllm.v1.worker.gpu_model_runner import GPUModelRunner
     except ImportError as e:
-        _dbg(f"gpu_model_runner import failed: {e!r}")
+        _dbg(f"no classic gpu_model_runner (vLLM from 0.34 has only the V2 runner): {e!r}")
         _installed = RunnerV2 is not None
         return  # not a vLLM process we can steer
 
