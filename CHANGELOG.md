@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 (2026-11-12)
+
+- vLLM 0.34 (vllm-project/vllm#65652) replaced `VllmConfig.compute_hash` with
+  `compile_factors()`, and its compile-cache key hashes the source of every
+  traced file, hotwire's included. hotwire no longer tries to salt the key
+  there, so no more `could not salt compile cache key` warning; up to 0.33
+  it salts as before.
+- Verified with `hotwire.verify` on vLLM 0.33.0 and a 0.34 nightly
+  (0.34.0rc1.dev321, V2 runner only): steering, unsteered isolation and mixed
+  batches pass, decode TPOT unchanged.
+
 ## 0.1.2 (2026-09-14)
 
 - The nvcc fallback moved from `hotwire.verify` into the plugin itself:
