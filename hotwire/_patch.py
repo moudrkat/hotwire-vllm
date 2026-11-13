@@ -21,6 +21,8 @@ point, so they exist in every engine/worker process before anything runs):
 
 Request API: SamplingParams.extra_args["hotwire"] (or vllm_xargs over HTTP) =
 '{"id": "v_pref_tesla_car", "layer": 20, "scale": 1.5}' (or a list of such).
+"mode": "project" pushes against each token's own component along the vector
+instead of adding it (scale 1 removes the direction, 2 reflects it).
 Vectors are preloaded operator-side from $HOTWIRE_VECTORS. No pickle anywhere.
 """
 import logging
@@ -63,6 +65,7 @@ def _steered_forward(orig_forward):
                 st.bank.bank,
                 st.slot_map[idx, : hidden.shape[0]],
                 st.bank.scales,
+                st.bank.modes,
             )
         return out
 
@@ -155,7 +158,8 @@ def _walk_batch(runner, st, num_scheduled, specs) -> None:
                 if entry.get("decode_only") and n > 1:
                     continue
                 slot = st.slot_for(entry["id"], int(entry["layer"]),
-                                   float(entry.get("scale", 1.0)))
+                                   float(entry.get("scale", 1.0)),
+                               entry.get("mode", "add"))
                 if slot is not None:
                     st.slot_map[int(entry["layer"]), start : start + n] = slot
                     _dbg(f"steering req={req_id} tokens[{start}:{start + n}] "
@@ -188,7 +192,8 @@ def _fill_slot_map_v2(runner, input_batch) -> None:
             if entry.get("decode_only") and end - start > 1:
                 continue  # prefill span; see _walk_batch
             slot = st.slot_for(entry["id"], int(entry["layer"]),
-                               float(entry.get("scale", 1.0)))
+                               float(entry.get("scale", 1.0)),
+                               entry.get("mode", "add"))
             if slot is not None:
                 st.slot_map[int(entry["layer"]), start:end] = slot
                 _dbg(f"v2 steering req={req_id} tokens[{start}:{end}] "

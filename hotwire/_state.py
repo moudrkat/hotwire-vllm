@@ -66,9 +66,15 @@ class SteerState:
         logger.info("hotwire: loaded h-norm table (%d layers) from %s",
                     len(self.h_norms), path)
 
-    def slot_for(self, vector_id: str, layer: int, scale: float) -> int | None:
-        """Resolve request spec -> bank slot, registering lazily."""
-        key = f"{vector_id}@{layer}x{scale}"
+    def slot_for(self, vector_id: str, layer: int, scale: float,
+                 mode: str = "add") -> int | None:
+        """Resolve request spec -> bank slot, registering lazily. mode "add"
+        adds scale * v; "project" pushes against the token's own component
+        along v (see _kernel.py), and the dose guardrail does not apply."""
+        if mode not in ("add", "project"):
+            logger.warning("hotwire: unknown mode %r for %r ignored", mode, vector_id)
+            return None
+        key = f"{vector_id}@{layer}x{scale}" + ("" if mode == "add" else f":{mode}")
         slot = self.bank.slot_of(key)
         if slot is not None:
             return slot
@@ -78,6 +84,16 @@ class SteerState:
             return None
         t = entry[0]
         row = t[layer] if t.dim() == 2 else t
+        if mode == "project":
+            n = float(row.float().norm())
+            if n == 0.0:
+                logger.warning("hotwire: %r has no direction at layer %d", vector_id, layer)
+                return None
+            try:
+                return self.bank.register(key, row.to(torch.float32) / n, scale, mode=1)
+            except RuntimeError as e:
+                logger.warning("hotwire: %s — %r not registered, entry ignored", e, key)
+                return None
         if self.dose_policy is not None:
             norms = self.vector_norms[vector_id]
             v_norm = float(norms[layer]) if norms.dim() else float(norms)

@@ -15,11 +15,12 @@ class VectorBank:
         self.n_slots = n_slots
         self.bank = torch.zeros(n_slots, hidden_dim, device=device, dtype=dtype)
         self.scales = torch.zeros(n_slots, device=device, dtype=torch.float32)
+        self.modes = torch.zeros(n_slots, device=device, dtype=torch.int32)  # 0 add, 1 project
         self._free = list(range(n_slots - 1, -1, -1))
         self._by_id: dict[str, int] = {}
         self._lock = threading.Lock()
 
-    def register(self, vector_id: str, vector: torch.Tensor, scale: float) -> int:
+    def register(self, vector_id: str, vector: torch.Tensor, scale: float, mode: int = 0) -> int:
         """Copy a vector into a free slot; returns the slot index."""
         if vector.shape != (self.hidden_dim,):
             raise ValueError(f"expected ({self.hidden_dim},), got {tuple(vector.shape)}")
@@ -33,6 +34,7 @@ class VectorBank:
                 self._by_id[vector_id] = slot
         self.bank[slot].copy_(vector.to(self.bank.dtype))
         self.scales[slot] = scale
+        self.modes[slot] = mode
         return slot
 
     def slot_of(self, vector_id: str) -> int | None:

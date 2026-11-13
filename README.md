@@ -79,6 +79,18 @@ vectors calibrated on generation-only steering
 (research rigs typically don't steer the prefill; applying such a vector to a
 long prompt as well multiplies the effective dose and can wreck coherence).
 
+Optional per-entry `"mode": "project"` pushes against each token's own
+component along the vector instead of adding it: `h -= scale · (h·v̂) v̂`.
+Scale 1 removes the direction, 2 reflects it, more pushes back in proportion
+to how much of it the token carries. It acts on what vLLM's decoder layers
+return as `hidden_states`, which in most models is the layer's MLP output
+(the residual is passed separately), not the whole residual stream. This is
+the runtime form of a directional weight edit, such as the loop fix in
+"Sparks of Weight-Space Programming": their direction at layers 15 and 19 of
+Qwen3.5-0.8B with scale 6 gave 27/60 on MATH-500 (thinking on) against 3/60
+unsteered and 29/60 for their edited weights. No new checkpoint, and the
+scale is per request.
+
 Lab twin: [brainscope](https://github.com/moudrkat/brainscope) accepts this
 exact spec and wire format — calibrate a vector under its lenses (its
 `export_hotwire` ships `.pt` files with a regime passport), deploy it here

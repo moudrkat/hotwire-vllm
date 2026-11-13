@@ -22,8 +22,35 @@ def test_steer_matches_reference():
         if s >= 0:
             ref[t] += scales[s] * bank[s].float()
 
-    steer(hidden, bank, slot_map, scales)
+    steer(hidden, bank, slot_map, scales, torch.zeros(n_slots, device="cuda", dtype=torch.int32))
     torch.testing.assert_close(hidden.float(), ref, atol=2e-2, rtol=2e-2)
+
+
+@cuda
+def test_project_mode_matches_reference():
+    """project: h -= scale * (h . v) v with v unit; scale 1 removes the direction."""
+    from hotwire._kernel import steer
+
+    torch.manual_seed(1)
+    n_tok, dim = 6, 1024
+    hidden = torch.randn(n_tok, dim, device="cuda", dtype=torch.float32)
+    v = torch.randn(2, dim, device="cuda")
+    v = v / v.norm(dim=1, keepdim=True)
+    bank = v.to(torch.float32)
+    scales = torch.tensor([1.0, 6.0], device="cuda")
+    modes = torch.tensor([1, 1], device="cuda", dtype=torch.int32)
+    slot_map = torch.tensor([0, 1, -1, 0, 1, 1], device="cuda", dtype=torch.int32)
+
+    ref = hidden.clone()
+    for t in range(n_tok):
+        s = slot_map[t].item()
+        if s >= 0:
+            ref[t] -= scales[s] * (ref[t] @ bank[s]) * bank[s]
+
+    steer(hidden, bank, slot_map, scales, modes)
+    torch.testing.assert_close(hidden, ref, atol=1e-4, rtol=1e-4)
+    # scale 1 leaves nothing along the direction
+    assert abs((hidden[0] @ bank[0]).item()) < 1e-3
 
 
 @cuda
@@ -35,7 +62,8 @@ def test_steer_all_idle_is_noop():
     steer(hidden,
           torch.randn(2, 512, device="cuda", dtype=torch.bfloat16),
           torch.full((5,), -1, device="cuda", dtype=torch.int32),
-          torch.ones(2, device="cuda"))
+          torch.ones(2, device="cuda"),
+          torch.zeros(2, device="cuda", dtype=torch.int32))
     assert torch.equal(hidden, before)
 
 
@@ -49,11 +77,12 @@ def test_steer_survives_cuda_graph_with_content_swap():
     bank = torch.zeros(2, dim, device="cuda", dtype=torch.bfloat16)
     scales = torch.ones(2, device="cuda")
     slot_map = torch.full((4,), -1, device="cuda", dtype=torch.int32)
+    modes = torch.zeros(2, device="cuda", dtype=torch.int32)
 
-    steer(hidden, bank, slot_map, scales)  # warmup
+    steer(hidden, bank, slot_map, scales, modes)  # warmup
     g = torch.cuda.CUDAGraph()
     with torch.cuda.graph(g):
-        steer(hidden, bank, slot_map, scales)
+        steer(hidden, bank, slot_map, scales, modes)
 
     # replay 1: no steering
     hidden.zero_(); g.replay()
