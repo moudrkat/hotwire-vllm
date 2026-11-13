@@ -282,10 +282,11 @@ def install() -> None:
         return
     _dbg("install() called")
 
-    # Salt vLLM's compile-cache key: our op is traced into the compiled model,
-    # but up to 0.33 vLLM's cache hash knows nothing about plugins. Without this,
-    # a cache from a hotwire-less run silently serves a model with no steering op
-    # in it (and vice versa after uninstall). From vllm-project/vllm#65652 on,
+    # Salt vLLM's compile-cache key: our op is traced into the compiled model.
+    # Up to 0.33 the JIT key hashes traced files, but the default AOT key
+    # (torch >= 2.10) leaves them out, so without this a cache from a
+    # hotwire-less run is loaded as-is and serves a model with no steering op
+    # in it (measured on 0.33.0; and vice versa after uninstall). From vllm-project/vllm#65652 on,
     # configs give compile_factors() instead and the key hashes the source of
     # every traced file, this one included, so there is nothing to salt.
     try:
