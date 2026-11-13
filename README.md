@@ -17,11 +17,13 @@ steering at native speed — CUDA graphs and torch.compile intact.
 > progress (small N, not enough statistics yet) in
 > [steering-mechanics](https://github.com/moudrkat/steering-mechanics).
 
-Every steering tool for vLLM that installs without forking it ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
-[EasySteer](https://arxiv.org/abs/2509.25175), IBM's vLLM Hook) forces
-`enforce_eager=True`: PyTorch forward hooks don't survive CUDA graph capture, so
-they disable CUDA graphs and torch.compile for the whole server — every request
-pays, steered or not. Fine for research, a non-starter for production.
+Steering tools for vLLM that install as hooks ([vllm-lens](https://github.com/UKGovernmentBEIS/vllm-lens),
+IBM's vLLM Hook) force `enforce_eager=True`: PyTorch forward hooks don't survive
+CUDA graph capture, so they disable CUDA graphs and torch.compile for the whole
+server — every request pays, steered or not. Fine for research, a non-starter
+for production. [EasySteer](https://github.com/ZJU-REAL/EasySteer) keeps CUDA
+graphs and offers many more methods, as a fork of vLLM pinned to one release
+(0.29.0).
 
 hotwire keeps the graphs. The steering addition is a custom torch op (Triton
 kernel) that gets baked *into* the captured graph; per-request routing happens
