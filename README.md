@@ -253,13 +253,13 @@ dense generate models), with CUDA graphs captured (PIECEWISE + FULL) and
 torch.compile on. Verified on Qwen3-0.6B / Qwen3-4B on a single 16 GB GPU:
 solo steering, mixed batches, decode-phase graph replays.
 
-Up to vLLM 0.33, hotwire also salts vLLM's compile cache key
-(`VllmConfig.compute_hash`). The JIT key there already hashes traced files, but
-the default AOT key (torch ≥ 2.10) leaves them out by design, so without the
-salt a cache warmed without hotwire is loaded as-is and steering silently does
-nothing (measured on 0.33.0). From vLLM 0.34 (vllm-project/vllm#65652) the key
-hashes the source of every traced file, hotwire's included, and the salt is
-skipped.
+hotwire also salts vLLM's compile cache key (`VllmConfig.compute_hash` up to
+0.33, `VllmConfig.compile_factors` from 0.34, vllm-project/vllm#65652). The
+JIT key hashes traced files, but the default AOT key (torch ≥ 2.10) leaves
+them out by design, and on load vLLM rechecks only the files the cached
+artifact traced. So without the salt a cache warmed without hotwire is loaded
+as-is and steering silently does nothing (measured on 0.33.0 and on a 0.34
+nightly).
 
 On vLLM 0.33.0 and a 0.34 nightly (0.34.0rc1.dev321, which has only the V2
 runner), `python -m hotwire.verify` passes on Qwen3-0.6B: steering changes

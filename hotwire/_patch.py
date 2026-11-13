@@ -276,8 +276,46 @@ def _install_v2(RunnerV2) -> None:
     _dbg("installed on V2 model runner")
 
 
-class _NoSalt(Exception):
-    """vLLM's compile-cache key already covers the plugin's code."""
+def _salt_compile_key(VllmConfig, salt: str) -> str:
+    """Salt vLLM's compile-cache key so artifacts built without hotwire are
+    never reused with it (and vice versa).
+
+    The op is traced into the compiled model, but the default AOT key
+    (torch >= 2.10) leaves traced files out by design: it is env + config +
+    the forward's qualname, and on load vLLM rechecks only the files the
+    cached artifact traced, never a file new to the trace. So without a salt a
+    cache warmed without hotwire is loaded as-is and steering silently does
+    nothing (measured on 0.33.0 and on a 0.34 nightly). Up to 0.33 the config
+    part of the key is ``compute_hash()``; from vllm-project/vllm#65652 on it
+    is ``compile_factors()``. Returns which one was salted.
+    """
+    if getattr(VllmConfig, "_hotwire_salted", False):
+        return "already"
+    if hasattr(VllmConfig, "compute_hash"):
+        import hashlib
+
+        orig_hash = VllmConfig.compute_hash
+
+        def compute_hash(self, *args, **kwargs):  # e.g. include_version=False
+            h = orig_hash(self, *args, **kwargs)
+            return hashlib.sha256((h + salt).encode()).hexdigest()[: len(h)]
+
+        VllmConfig.compute_hash = compute_hash
+        which = "compute_hash"
+    elif hasattr(VllmConfig, "compile_factors"):
+        orig_factors = VllmConfig.compile_factors
+
+        def compile_factors(self, *args, **kwargs):
+            factors = orig_factors(self, *args, **kwargs)
+            factors["hotwire"] = salt
+            return factors
+
+        VllmConfig.compile_factors = compile_factors
+        which = "compile_factors"
+    else:
+        raise AttributeError("VllmConfig has neither compute_hash nor compile_factors")
+    VllmConfig._hotwire_salted = True
+    return which
 
 
 def install() -> None:
@@ -287,35 +325,14 @@ def install() -> None:
         return
     _dbg("install() called")
 
-    # Salt vLLM's compile-cache key: our op is traced into the compiled model.
-    # Up to 0.33 the JIT key hashes traced files, but the default AOT key
-    # (torch >= 2.10) leaves them out, so without this a cache from a
-    # hotwire-less run is loaded as-is and serves a model with no steering op
-    # in it (measured on 0.33.0; and vice versa after uninstall). From vllm-project/vllm#65652 on,
-    # configs give compile_factors() instead and the key hashes the source of
-    # every traced file, this one included, so there is nothing to salt.
     try:
-        import hashlib
-
         from importlib.metadata import version
 
         from vllm.config import VllmConfig
 
-        if not hasattr(VllmConfig, "compute_hash") and hasattr(VllmConfig, "compile_factors"):
-            _dbg("compile cache key hashes traced code (compile_factors); no salt needed")
-            raise _NoSalt
-
         salt = "hotwire-" + version("hotwire-vllm")
-        orig_hash = VllmConfig.compute_hash
-
-        def compute_hash(self):
-            h = orig_hash(self)
-            return hashlib.sha256((h + salt).encode()).hexdigest()[: len(h)]
-
-        VllmConfig.compute_hash = compute_hash
-        _dbg(f"compile cache salted with {salt!r}")
-    except _NoSalt:
-        pass
+        which = _salt_compile_key(VllmConfig, salt)
+        _dbg(f"compile cache salted via {which} with {salt!r}")
     except Exception as e:
         logger.warning("hotwire: could not salt compile cache key (%r); "
                        "clear ~/.cache/vllm/torch_compile_cache after "
