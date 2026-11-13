@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4 (2026-11-13)
+
+- `"mode": "project"`: instead of adding the vector, push against each token's own component along it,
+  `h -= scale · (h·v̂) v̂` (scale 1 removes the direction, 2 reflects it). The runtime form of a directional
+  weight edit, per request; on Qwen3.5-0.8B it reproduces most of the "Sparks of Weight-Space Programming" loop
+  fix without the edited weights (README).
+- The `hotwire::steer` op takes a per-slot mode buffer (allocated once, graph-safe like the rest).
+
 ## 0.1.3 (2026-11-12)
 
 - vLLM 0.34 (vllm-project/vllm#65652) replaced `VllmConfig.compute_hash` with
