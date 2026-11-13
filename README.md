@@ -99,6 +99,34 @@ exact spec and wire format — calibrate a vector under its lenses (its
 unchanged, and replay production conversations back under the lens when a
 vector misbehaves.
 
+## What hotwire can and can't express
+
+Several layers in one request: send a list. Each entry is applied after
+decoder layer `layer` (0-based), so this adds the same vector at layers 0–3:
+
+```python
+SamplingParams(extra_args={"hotwire": json.dumps(
+    [{"id": "rome", "layer": l, "scale": 4.0} for l in range(4)])})
+```
+
+Each distinct (vector, layer, scale) takes one slot, so steering many layers
+at once needs `HOTWIRE_SLOTS` at least that large (default 16, see
+[Limitations](#limitations)).
+
+Can:
+- add a fixed vector times a fixed scale, at any set of layers, per request;
+- `"decode_only"` (skip the prompt) and `"mode": "project"` (remove or push
+  back each token's own component along the vector).
+
+Can't, today:
+- a strength that follows the live activations, such as "6 times this
+  forward's mean norm" or "times each token's norm": the scale is a number
+  fixed when the request arrives. Measure the norm once beforehand and pass
+  the product as `scale`;
+- reading activations (logit lens, capture, harvesting);
+- ablation (zeroing a component's output) and patching (writing a different
+  value at each position).
+
 ## Verify on your hardware
 
 Two commands, ~3 minutes on any CUDA box with vLLM installed:
