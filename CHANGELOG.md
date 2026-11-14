@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 (2026-11-14)
 
 - Salt the compile cache key on vLLM 0.34 too, through `VllmConfig.compile_factors`. 0.1.3 skipped
   the salt there, but the default AOT key still leaves traced files out after vllm-project/vllm#65652,
   so a cache warmed without hotwire was loaded as-is and steering silently did nothing. Measured on
   0.34.0rc1.dev441 (torch 2.14): `steering_changes_output` and `mixed_batch_isolated` FAIL on a
-  hotwire-less warm cache without the salt, PASS with it.
+  hotwire-less warm cache without the salt, PASS with it. Found and fixed by @arun-elr (#1).
 - The 0.33 `compute_hash` wrapper forwards its arguments: 0.33.0 calls `compute_hash(include_version=False)`
   from the FlashInfer autotune cache, which raised `TypeError` with hotwire loaded.
 
